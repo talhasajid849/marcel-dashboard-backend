@@ -1,0 +1,75 @@
+<%
+const content = `
+    <h2 style="color: #28a745; margin-bottom: 20px;">✅ Booking Confirmed!</h2>
+    
+    <p>Hi <strong>${customerName}</strong>,</p>
+    
+    <p>Great news! Your scooter rental booking has been confirmed and approved. We're excited to have you ride with us!</p>
+    
+    <div class="info-box">
+        <h3 style="margin-bottom: 15px; color: #667eea;">📋 Booking Details</h3>
+        
+        <div class="info-row">
+            <span class="info-label">Booking ID:</span>
+            <span class="info-value"><strong>${bookingId}</strong></span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Scooter Type:</span>
+            <span class="info-value">${scooterType}</span>
+        </div>
+        
+        ${scooterPlate ? `
+        <div class="info-row">
+            <span class="info-label">Scooter Plate:</span>
+            <span class="info-value"><strong>${scooterPlate}</strong></span>
+        </div>
+        ` : ''}
+        
+        <div class="info-row">
+            <span class="info-label">Start Date:</span>
+            <span class="info-value">${startDate}</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">End Date:</span>
+            <span class="info-value">${endDate}</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Total Amount:</span>
+            <span class="info-value"><strong style="color: #28a745; font-size: 18px;">$${amount}</strong></span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Pickup Location:</span>
+            <span class="info-value">${pickupAddress}</span>
+        </div>
+    </div>
+    
+    <div class="alert success">
+        <strong>✓ What's Next?</strong><br>
+        Please arrive at the pickup location on your start date with your driver's license and booking ID.
+    </div>
+    
+    <h3 style="margin-top: 30px; margin-bottom: 15px;">📝 Important Reminders:</h3>
+    <ul style="padding-left: 20px; line-height: 2;">
+        <li>Bring your valid driver's license</li>
+        <li>Arrive 15 minutes early for vehicle inspection</li>
+        <li>Full tank of fuel is included</li>
+        <li>Helmet and safety gear provided</li>
+        <li>24/7 roadside assistance available</li>
+    </ul>
+    
+    <div class="divider"></div>
+    
+    <p>If you have any questions or need to make changes, please contact us immediately.</p>
+    
+    <p style="margin-top: 30px;">
+        Safe travels! 🛵<br>
+        <strong>The Honk Hire Team</strong>
+    </p>
+`;
+%>
+
+<%- include('layout', { content: content, subject: 'Booking Confirmed' }) %>

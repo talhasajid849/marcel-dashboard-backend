@@ -1,0 +1,50 @@
+<%
+const content = `
+    <h2 style="color: #dc3545; margin-bottom: 20px;">❌ Booking Cancelled</h2>
+    
+    <p>Hi <strong>${customerName}</strong>,</p>
+    
+    <p>We're writing to inform you that your booking has been cancelled.</p>
+    
+    <div class="info-box">
+        <h3 style="margin-bottom: 15px; color: #dc3545;">📋 Cancelled Booking</h3>
+        
+        <div class="info-row">
+            <span class="info-label">Booking ID:</span>
+            <span class="info-value"><strong>${bookingId}</strong></span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Cancellation Reason:</span>
+            <span class="info-value">${reason}</span>
+        </div>
+        
+        ${refundAmount ? `
+        <div class="info-row">
+            <span class="info-label">Refund Amount:</span>
+            <span class="info-value"><strong style="color: #28a745;">$${refundAmount}</strong></span>
+        </div>
+        ` : ''}
+    </div>
+    
+    <div class="alert danger">
+        <strong>💰 Refund Information</strong><br>
+        If you've already made a payment, your refund will be processed within 5-7 business days to your original payment method.
+    </div>
+    
+    <p>We're sorry we couldn't serve you this time. We'd love to have you ride with us in the future!</p>
+    
+    <a href="${companyWebsite}/bookings" class="button">Make a New Booking</a>
+    
+    <div class="divider"></div>
+    
+    <p>If you believe this cancellation was made in error, please contact us immediately.</p>
+    
+    <p style="margin-top: 30px;">
+        Best regards,<br>
+        <strong>The Honk Hire Team</strong>
+    </p>
+`;
+%>
+
+<%- include('layout', { content: content, subject: 'Booking Cancelled' }) %>

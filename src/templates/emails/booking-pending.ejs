@@ -1,0 +1,56 @@
+<%
+const content = `
+    <h2 style="color: #ffc107; margin-bottom: 20px;">⏳ Booking Received - Pending Approval</h2>
+    
+    <p>Hi <strong>${customerName}</strong>,</p>
+    
+    <p>Thank you for choosing Honk Hire Co.! We've received your booking request and it's currently under review.</p>
+    
+    <div class="info-box">
+        <h3 style="margin-bottom: 15px; color: #667eea;">📋 Booking Summary</h3>
+        
+        <div class="info-row">
+            <span class="info-label">Booking ID:</span>
+            <span class="info-value"><strong>${bookingId}</strong></span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Scooter Type:</span>
+            <span class="info-value">${scooterType}</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Start Date:</span>
+            <span class="info-value">${startDate}</span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">End Date:</span>
+            <span class="info-value">${endDate}</span>
+        </div>
+    </div>
+    
+    <div class="alert">
+        <strong>⏰ What Happens Next?</strong><br>
+        Our team is reviewing your booking and verifying your driver's license. You'll receive a confirmation email within 24 hours.
+    </div>
+    
+    <h3 style="margin-top: 30px; margin-bottom: 15px;">📧 Stay Tuned:</h3>
+    <ul style="padding-left: 20px; line-height: 2;">
+        <li>We'll send you a payment link once approved</li>
+        <li>Check your email regularly for updates</li>
+        <li>Feel free to contact us if you have questions</li>
+    </ul>
+    
+    <div class="divider"></div>
+    
+    <p>Thank you for your patience!</p>
+    
+    <p style="margin-top: 30px;">
+        Best regards,<br>
+        <strong>The Honk Hire Team</strong>
+    </p>
+`;
+%>
+
+<%- include('layout', { content: content, subject: 'Booking Received' }) %>

@@ -1,0 +1,56 @@
+<%
+const content = `
+    <h2 style="color: #ff6b6b; margin-bottom: 20px;">💳 Payment Reminder</h2>
+    
+    <p>Hi <strong>${customerName}</strong>,</p>
+    
+    <p>This is a friendly reminder that your booking payment is still pending.</p>
+    
+    <div class="info-box">
+        <h3 style="margin-bottom: 15px; color: #667eea;">📋 Payment Details</h3>
+        
+        <div class="info-row">
+            <span class="info-label">Booking ID:</span>
+            <span class="info-value"><strong>${bookingId}</strong></span>
+        </div>
+        
+        <div class="info-row">
+            <span class="info-label">Amount Due:</span>
+            <span class="info-value"><strong style="color: #dc3545; font-size: 20px;">$${amount}</strong></span>
+        </div>
+        
+        ${expiresAt ? `
+        <div class="info-row">
+            <span class="info-label">Payment Expires:</span>
+            <span class="info-value"><strong style="color: #dc3545;">${expiresAt}</strong></span>
+        </div>
+        ` : ''}
+    </div>
+    
+    <div class="alert danger">
+        <strong>⚠️ Action Required</strong><br>
+        Please complete your payment soon to secure your booking. Unpaid bookings may be automatically cancelled.
+    </div>
+    
+    ${paymentLink ? `
+    <div style="text-align: center; margin: 30px 0;">
+        <a href="${paymentLink}" class="button" style="background-color: #28a745; font-size: 16px;">
+            💳 Pay Now - $${amount}
+        </a>
+    </div>
+    ` : ''}
+    
+    <p>Once payment is received, your booking will be immediately confirmed!</p>
+    
+    <div class="divider"></div>
+    
+    <p>Need help? Contact us anytime.</p>
+    
+    <p style="margin-top: 30px;">
+        Best regards,<br>
+        <strong>The Honk Hire Team</strong>
+    </p>
+`;
+%>
+
+<%- include('layout', { content: content, subject: 'Payment Reminder' }) %>
