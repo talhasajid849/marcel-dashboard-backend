@@ -69,6 +69,9 @@ class SubscriptionService {
         balance_due: totalExpected - weeklyRate,
 
         status: 'ACTIVE',
+        auto_charge: Boolean(booking.stripe_customer_id && booking.stripe_payment_intent_id),
+        stripe_customer_id: booking.stripe_customer_id || '',
+        stripe_payment_intent_id: booking.stripe_payment_intent_id || '',
         weekly_payments: [],
       });
 
@@ -203,6 +206,14 @@ class SubscriptionService {
       return false;
     }
 
+    if (subscription.stripe_subscription_id) {
+      const cancelled = await stripeService.cancelSubscription(subscription.stripe_subscription_id);
+      if (!cancelled) {
+        console.error('âŒ Failed to cancel Stripe subscription:', subscription.stripe_subscription_id);
+        return false;
+      }
+    }
+
     await subscription.complete();
 
     // Check if all weeks are paid
@@ -249,18 +260,58 @@ class SubscriptionService {
       return false;
     }
 
+    let paymentIntentId = subscription.stripe_payment_intent_id;
+
+    if (!paymentIntentId) {
+      const booking = await Booking.findOne({ booking_id: subscription.booking_id });
+      paymentIntentId = booking?.stripe_payment_intent_id;
+    }
+
+    if (!paymentIntentId) {
+      const upfrontPayment = subscription.weekly_payments.find(
+        (payment) => payment.week_number === 1 && payment.stripe_session_id
+      );
+      const session = upfrontPayment
+        ? await stripeService.getCheckoutSession(upfrontPayment.stripe_session_id)
+        : null;
+      paymentIntentId = session?.payment_intent;
+    }
+
+    if (!paymentIntentId) {
+      console.error('No upfront Stripe payment intent stored for refund');
+      return false;
+    }
+
+    const refundAmount = Math.min(Number(amount) || 0, subscription.deposit_amount || 0);
+    if (refundAmount <= 0) {
+      console.error('Invalid deposit refund amount:', amount);
+      return false;
+    }
+
+    const stripeRefund = await stripeService.refundDeposit(
+      paymentIntentId,
+      Math.round(refundAmount * 100)
+    );
+
+    if (!stripeRefund?.id) {
+      return false;
+    }
+
     subscription.deposit_refunded = true;
-    subscription.deposit_refund_amount = amount;
+    subscription.deposit_refund_amount = refundAmount;
     subscription.deposit_refund_date = new Date().toISOString();
     subscription.deposit_refund_reason = reason;
+    subscription.deposit_refund_id = stripeRefund.id;
+    subscription.stripe_payment_intent_id = paymentIntentId;
     subscription.updated_at = new Date().toISOString();
 
     await subscription.save();
 
     console.log('✅ Deposit refund recorded:', {
       subscription_id: subscriptionId,
-      amount,
+      amount: refundAmount,
       reason,
+      stripe_refund_id: stripeRefund.id,
     });
 
     return true;

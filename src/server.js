@@ -31,7 +31,8 @@ app.use(cors(corsOptions));
 // Stripe webhook needs raw body — register BEFORE express.json()
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }), (req, res, next) => {
   if (Buffer.isBuffer(req.body)) {
-    try { req.body = JSON.parse(req.body.toString()); } catch (e) { req.body = {}; }
+    req.rawBody = req.body.toString();
+    try { req.body = JSON.parse(req.rawBody); } catch (e) { req.body = {}; }
   }
   next();
 });

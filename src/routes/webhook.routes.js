@@ -10,6 +10,7 @@
  */
 
 const express      = require('express');
+const crypto       = require('crypto');
 const router       = express.Router();
 const Booking      = require('../models/Booking');
 const Customer     = require('../models/Customer');
@@ -20,8 +21,44 @@ const stripeService = require('../services/stripeService');
 
 // ── POST /api/webhook/stripe ─────────────────────────────────────────────────
 
+function verifyStripeSignature(req) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  const signature = req.get('stripe-signature') || '';
+  const rawBody = req.rawBody;
+  if (!signature || !rawBody) return false;
+
+  const parts = Object.fromEntries(
+    signature.split(',').map((part) => {
+      const [key, value] = part.split('=');
+      return [key, value];
+    })
+  );
+
+  const timestamp = parts.t;
+  const expected = parts.v1;
+  if (!timestamp || !expected) return false;
+
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(ageSeconds) || ageSeconds > 300) return false;
+
+  const digest = crypto
+    .createHmac('sha256', secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest('hex');
+
+  const actual = Buffer.from(digest);
+  const expectedBuffer = Buffer.from(expected);
+  return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
+}
+
 router.post('/stripe', async (req, res) => {
-  // Always respond 200 immediately so Stripe doesn't retry
+  if (!verifyStripeSignature(req)) {
+    return res.status(400).json({ success: false, error: 'Invalid Stripe signature' });
+  }
+
+  // Respond quickly so Stripe does not retry successful deliveries.
   res.status(200).json({ received: true });
 
   try {
@@ -34,7 +71,11 @@ router.post('/stripe', async (req, res) => {
     console.log(`📥 Stripe webhook: ${eventType}`);
 
     if (eventType === 'checkout.session.completed') {
-      await handleCheckoutCompleted(object);
+      if (object.metadata?.payment_type === 'weekly') {
+        await handleWeeklyCheckoutCompleted(object);
+      } else {
+        await handleCheckoutCompleted(object);
+      }
       return;
     }
 
@@ -168,7 +209,7 @@ async function handleCheckoutCompleted(session) {
 
   // 5. Create internal subscription record
   const subscriptionService = require('../services/subscriptionService');
-  await subscriptionService.createFromBooking(booking);
+  const localSubscription = await subscriptionService.createFromBooking(booking);
 
   // 6. Create Stripe Subscription (auto weekly charges)
   if (stripeCustomerId && paymentIntentId) {
@@ -188,7 +229,16 @@ async function handleCheckoutCompleted(session) {
           // Save Stripe subscription ID
           await Subscription.findOneAndUpdate(
             { booking_id: booking.booking_id },
-            { $set: { stripe_subscription_id: stripeSub.id, updated_at: now } }
+            {
+              $set: {
+                auto_charge: true,
+                stripe_subscription_id: stripeSub.id,
+                stripe_customer_id: stripeCustomerId || localSubscription?.stripe_customer_id || '',
+                stripe_payment_intent_id: paymentIntentId || localSubscription?.stripe_payment_intent_id || '',
+                payment_method_id: paymentMethodId,
+                updated_at: now,
+              }
+            }
           );
           console.log('✅ Weekly subscription active:', stripeSub.id);
         }
@@ -202,6 +252,42 @@ async function handleCheckoutCompleted(session) {
 
   // 7. Send WhatsApp confirmation
   await sendConfirmationMessage(booking);
+}
+
+async function handleWeeklyCheckoutCompleted(session) {
+  const subscriptionId = session.metadata?.subscription_id;
+  const weekNumber = Number(session.metadata?.week_number);
+
+  if (!subscriptionId || !weekNumber) {
+    console.warn('Weekly checkout missing subscription_id or week_number');
+    return;
+  }
+
+  const subscription = await Subscription.findOne({ subscription_id: subscriptionId });
+  if (!subscription) {
+    console.warn('No local subscription for weekly checkout:', subscriptionId);
+    return;
+  }
+
+  await subscription.markWeekPaid(weekNumber, session.id, 'WEEKLY_LINK');
+  console.log('Weekly checkout marked paid:', {
+    subscription_id: subscriptionId,
+    week_number: weekNumber,
+    session_id: session.id,
+  });
+
+  if (subscription.customer_whatsapp_id) {
+    try {
+      const platformMessenger = require('../services/platformMessenger');
+      await platformMessenger.sendMessage(
+        'whatsapp',
+        subscription.customer_whatsapp_id,
+        `Weekly payment received - you're all sorted for week ${weekNumber}. Cheers!`
+      );
+    } catch (e) {
+      console.error('Weekly checkout confirmation failed:', e.message);
+    }
+  }
 }
 
 // ── invoice.payment_succeeded ────────────────────────────────────────────────

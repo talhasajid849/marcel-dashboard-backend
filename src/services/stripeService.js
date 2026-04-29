@@ -57,7 +57,7 @@ class StripeService {
   // Recursively encode object to URL params (handles nested objects/arrays)
   _encode(obj, prefix = '') {
     return Object.entries(obj)
-      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .filter(([, v]) => v !== undefined && v !== null)
       .map(([k, v]) => {
         const key = prefix ? `${prefix}[${k}]` : k;
         if (typeof v === 'object' && !Array.isArray(v)) {
@@ -205,6 +205,51 @@ class StripeService {
     }
   }
 
+  async createWeeklyPaymentLink(subscription, weekNumber) {
+    if (!this.secretKey) {
+      console.error('âŒ STRIPE_SECRET_KEY not set');
+      return null;
+    }
+
+    const payment = subscription.weekly_payments.find((p) => p.week_number === weekNumber);
+    if (!payment) return null;
+
+    try {
+      const session = await this.stripeRequest('POST', '/v1/checkout/sessions', {
+        mode: 'payment',
+        customer: subscription.stripe_customer_id || undefined,
+        'line_items[0][price_data][currency]': 'aud',
+        'line_items[0][price_data][unit_amount]': Math.round(payment.amount * 100),
+        'line_items[0][price_data][product_data][name]': `${subscription.scooter_type} Weekly Hire - Week ${weekNumber}`,
+        'line_items[0][quantity]': 1,
+        'metadata[payment_type]': 'weekly',
+        'metadata[subscription_id]': subscription.subscription_id,
+        'metadata[booking_id]': subscription.booking_id,
+        'metadata[week_number]': weekNumber,
+        success_url: `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-success`,
+        cancel_url:  `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-cancel`,
+      });
+
+      if (!session?.url) return null;
+
+      payment.stripe_session_id = session.id;
+      payment.stripe_link = session.url;
+      subscription.updated_at = new Date().toISOString();
+      await subscription.save();
+
+      console.log('âœ… Weekly checkout link created:', {
+        subscriptionId: subscription.subscription_id,
+        weekNumber,
+        sessionId: session.id,
+      });
+
+      return { url: session.url, sessionId: session.id };
+    } catch (err) {
+      console.error('âŒ Stripe weekly link error:', err.message);
+      return null;
+    }
+  }
+
   // ── Retrieve PaymentIntent to get saved payment method ───────────────────
 
   async getPaymentIntent(paymentIntentId) {
@@ -217,6 +262,15 @@ class StripeService {
   }
 
   // ── Cancel a Stripe Subscription ─────────────────────────────────────────
+
+  async getCheckoutSession(sessionId) {
+    try {
+      return await this.stripeRequest('GET', `/v1/checkout/sessions/${sessionId}`, {});
+    } catch (err) {
+      console.error('Get Checkout Session error:', err.message);
+      return null;
+    }
+  }
 
   async cancelSubscription(stripeSubscriptionId) {
     try {

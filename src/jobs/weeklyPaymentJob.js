@@ -126,12 +126,15 @@ class WeeklyPaymentJob {
         }
 
         // Request payment
-        const paymentInfo = await subscriptionService.requestWeeklyPayment(
-          subscription,
-          nextWeek.week_number,
-        );
+        let paymentInfo = null;
+        if (!subscription.auto_charge) {
+          paymentInfo = await subscriptionService.requestWeeklyPayment(
+            subscription,
+            nextWeek.week_number,
+          );
+        }
 
-        if (!paymentInfo) {
+        if (!subscription.auto_charge && !paymentInfo) {
           console.error(
             `❌ Failed to create payment for ${subscription.subscription_id}`,
           );
@@ -139,7 +142,9 @@ class WeeklyPaymentJob {
         }
 
         // Send WhatsApp message
-        const message = `Hey ${subscription.customer_name}, just a heads up — your weekly payment of $${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`;
+        const message = subscription.auto_charge
+          ? `Hey ${subscription.customer_name}, just a heads up — your weekly payment of $${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`
+          : `Hey ${subscription.customer_name}, your weekly payment of $${nextWeek.amount} is due this week. You can pay here: ${paymentInfo.paymentLink}`;
 
         await whatsappService.sendMessage(
           subscription.customer_whatsapp_id,

@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const Subscription = require('../models/Subscription');
 const subscriptionService = require('../services/subscriptionService');
+const stripeService = require('../services/stripeService');
 const authMiddleware = require('../middleware/auth.middleware');
 
 // Apply auth middleware to all routes
@@ -139,10 +140,25 @@ router.post('/:id/request-payment', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Failed to create payment link' });
     }
 
+    if (subscription.customer_whatsapp_id) {
+      const platformMessenger = require('../services/platformMessenger');
+      await platformMessenger.sendMessage(
+        'whatsapp',
+        subscription.customer_whatsapp_id,
+        `Hey ${subscription.customer_name}, your week ${week_number} payment of $${result.amount} is ready here: ${result.paymentLink}`,
+        {
+          subscription_id: subscription.subscription_id,
+          week_number,
+        }
+      );
+    }
+
     res.json({
       success: true,
       data: result,
-      message: 'Payment link sent successfully',
+      message: subscription.customer_whatsapp_id
+        ? 'Payment link sent successfully'
+        : 'Payment link created successfully',
     });
   } catch (error) {
     console.error('❌ Request payment error:', error.message);
@@ -191,6 +207,16 @@ router.post('/:id/pause', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
+    if (subscription.stripe_subscription_id) {
+      const stripeResult = await stripeService.pauseSubscription(subscription.stripe_subscription_id);
+      if (!stripeResult) {
+        return res.status(502).json({
+          success: false,
+          error: 'Failed to pause Stripe subscription',
+        });
+      }
+    }
+
     subscription.status = 'PAUSED';
     subscription.updated_at = new Date().toISOString();
     await subscription.save();
@@ -217,6 +243,16 @@ router.post('/:id/resume', async (req, res) => {
 
     if (!subscription) {
       return res.status(404).json({ success: false, error: 'Subscription not found' });
+    }
+
+    if (subscription.stripe_subscription_id) {
+      const stripeResult = await stripeService.resumeSubscription(subscription.stripe_subscription_id);
+      if (!stripeResult) {
+        return res.status(502).json({
+          success: false,
+          error: 'Failed to resume Stripe subscription',
+        });
+      }
     }
 
     subscription.status = 'ACTIVE';

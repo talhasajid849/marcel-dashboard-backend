@@ -88,6 +88,7 @@ const subscriptionSchema = new mongoose.Schema(
     auto_charge: { type: Boolean, default: false },
     stripe_subscription_id: { type: String, default: "" },
     stripe_customer_id: { type: String, default: "" },
+    stripe_payment_intent_id: { type: String, default: "" },
     payment_method_id: String, // Stripe payment method for auto-charge
 
     // Deposit handling
@@ -95,6 +96,7 @@ const subscriptionSchema = new mongoose.Schema(
     deposit_refund_amount: Number,
     deposit_refund_date: String,
     deposit_refund_reason: String,
+    deposit_refund_id: String,
 
     // Timestamps
     created_at: { type: String, default: () => new Date().toISOString() },
@@ -141,6 +143,15 @@ subscriptionSchema.methods.markWeekPaid = function (
   stripeSessionId,
   paymentMethod = "WEEKLY_LINK",
 ) {
+  if (
+    stripeSessionId &&
+    this.weekly_payments.some(
+      (p) => p.stripe_session_id === stripeSessionId && p.status === "PAID",
+    )
+  ) {
+    return this.save();
+  }
+
   const payment = this.weekly_payments.find(
     (p) => p.week_number === weekNumber,
   );
@@ -157,7 +168,7 @@ subscriptionSchema.methods.markWeekPaid = function (
 
     this.weeks_paid = (this.weeks_paid || 0) + 1;
     this.total_paid = (this.total_paid || 0) + payment.amount;
-    this.balance_due = this.total_expected - this.total_paid;
+    this.balance_due = Math.max(0, this.total_expected - this.total_paid);
 
     // Calculate next payment due (next Sunday)
     const nextWeek = this.weekly_payments.find(

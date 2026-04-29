@@ -82,6 +82,8 @@ const bookingSchema = new mongoose.Schema(
       index: true, 
       sparse: true 
     },
+    stripe_customer_id: String,
+    stripe_payment_intent_id: String,
     stripe_session_expires_at: String,
     stripe_session_expired_at: String,
     payment_status: { 
