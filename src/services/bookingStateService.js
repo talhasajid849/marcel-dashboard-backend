@@ -173,6 +173,9 @@ function buildBookingContext(state, customer = null) {
   const lines = [
     "# BOOKING STATUS",
     "",
+    `Current date: ${new Date().toISOString().split("T")[0]} (year is ${new Date().getFullYear()})`,
+    `Timezone: Australia/Brisbane`,
+    ``,
     `Booking ID: ${state.bookingId || "NOT CREATED YET"}`,
     `Scooter type: ${state.scooterType || "NOT SET"}`,
     "",
@@ -182,7 +185,7 @@ function buildBookingContext(state, customer = null) {
     `Delivery fee: $${deliveryFee}`,
     `Upfront total: $${upfront} (first week + deposit${deliveryFee ? " + delivery" : ""})`,
     "",
-    ...customerLines,  
+    ...customerLines,
     `Licence type: ${state.licenceType || "NOT SET"}`,
     `Dates: ${state.startDate && state.endDate ? `${state.startDate} to ${state.endDate}` : "NOT SET"}`,
     `Pickup or delivery: ${state.pickupOrDelivery || "NOT SET"}`,
@@ -195,7 +198,6 @@ function buildBookingContext(state, customer = null) {
     `Next of kin phone: ${state.nextOfKinPhone || "NOT SET"}`,
     `Licence photo front: ${state.licencePhotoFrontReceived ? "RECEIVED" : "NOT RECEIVED"}`,
     `Licence photo back: ${state.licencePhotoBackReceived ? "RECEIVED" : "NOT RECEIVED"}`,
-
   ];
 
   if (state.paymentLink) {
@@ -353,11 +355,19 @@ function parseDateInput(text) {
 
   if (matches.length < 2) return null;
 
-  const currentYear = new Date().getFullYear();
+  const now = new Date();
+  const currentYear = now.getFullYear(); // Always 2026
+  const currentMonth = now.getMonth() + 1;
+
   const parsed = matches.slice(0, 2).map((match) => {
     const day = Number(match[1]);
     const month = monthMap[match[2]];
-    const year = Number(match[3] || currentYear);
+    let year = Number(match[3] || currentYear);
+
+    // If no year given and month is in the past, use next year
+    if (!match[3] && month < currentMonth - 1) {
+      year = currentYear + 1;
+    }
 
     if (!day || !month || day < 1 || day > 31) return null;
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -400,7 +410,7 @@ async function findActiveBooking(platform, platformId) {
 }
 
 async function ensureCustomer(platform, platformId, state = {}) {
-  const now        = new Date().toISOString();
+  const now = new Date().toISOString();
   const customerId = state.customer_id || `CUS-${Date.now()}`;
 
   return Customer.findOneAndUpdate(
@@ -410,7 +420,7 @@ async function ensureCustomer(platform, platformId, state = {}) {
         customer_id: customerId,
         platform,
         platform_id: platformId,
-        customer_tier: 'NEW',
+        customer_tier: "NEW",
         total_bookings: 0,
         successful_bookings: 0,
         total_hires: 0,
@@ -419,10 +429,10 @@ async function ensureCustomer(platform, platformId, state = {}) {
       },
       $set: {
         last_contact: now,
-        updated_at:   now,
+        updated_at: now,
       },
     },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
@@ -437,18 +447,22 @@ async function prefillFromCustomerProfile(platform, platformId) {
   const { booking } = await loadState(platform, platformId);
   if (!booking) return;
 
-  const now     = new Date().toISOString();
+  const now = new Date().toISOString();
   const updates = {};
 
   // Prefill fields we already know about them
-  if (customer.name && !booking.name)                   updates.name = customer.name;
-  if (customer.phone && !booking.phone)                 updates.phone = customer.phone;
-  if (customer.email && !booking.email)                 updates.email = customer.email;
-  if (customer.address && !booking.address)             updates.address = customer.address;
-  if (customer.country_of_origin && !booking.country_of_origin) updates.country_of_origin = customer.country_of_origin;
-  if (customer.next_of_kin && !booking.next_of_kin)     updates.next_of_kin = customer.next_of_kin;
-  if (customer.next_of_kin_phone && !booking.next_of_kin_phone) updates.next_of_kin_phone = customer.next_of_kin_phone;
-  if (customer.licence_type && !booking.licence_type)   updates.licence_type = customer.licence_type;
+  if (customer.name && !booking.name) updates.name = customer.name;
+  if (customer.phone && !booking.phone) updates.phone = customer.phone;
+  if (customer.email && !booking.email) updates.email = customer.email;
+  if (customer.address && !booking.address) updates.address = customer.address;
+  if (customer.country_of_origin && !booking.country_of_origin)
+    updates.country_of_origin = customer.country_of_origin;
+  if (customer.next_of_kin && !booking.next_of_kin)
+    updates.next_of_kin = customer.next_of_kin;
+  if (customer.next_of_kin_phone && !booking.next_of_kin_phone)
+    updates.next_of_kin_phone = customer.next_of_kin_phone;
+  if (customer.licence_type && !booking.licence_type)
+    updates.licence_type = customer.licence_type;
 
   // Licence photos — returning customer can reuse previous photos
   if (customer.licence_photo_front_url && !booking.licence_photo_front_url) {
@@ -463,9 +477,15 @@ async function prefillFromCustomerProfile(platform, platformId) {
   if (Object.keys(updates).length === 0) return;
 
   updates.updated_at = now;
-  await Booking.findOneAndUpdate({ booking_id: booking.booking_id }, { $set: updates });
+  await Booking.findOneAndUpdate(
+    { booking_id: booking.booking_id },
+    { $set: updates },
+  );
 
-  console.log(`✅ Pre-filled ${Object.keys(updates).length} fields for returning customer:`, customer.name);
+  console.log(
+    `✅ Pre-filled ${Object.keys(updates).length} fields for returning customer:`,
+    customer.name,
+  );
 }
 
 async function ensureBooking(platform, platformId, customer) {
@@ -494,7 +514,7 @@ async function loadState(platform, platformId) {
   return {
     booking,
     customer,
-    state:   toState(booking, customer),
+    state: toState(booking, customer),
   };
 }
 
@@ -792,6 +812,24 @@ async function finalizeBookingIfReady(platform, platformId) {
   const now = new Date().toISOString();
   const holdExpiresAt = addHours(new Date(), HOLD_DURATION_HOURS).toISOString();
   const scooterHold = await assignScooterHold(booking, state, holdExpiresAt);
+
+  // Enforce minimum 1 week hire
+  if (state.startDate && state.endDate) {
+    const start = new Date(state.startDate);
+    const end = new Date(state.endDate);
+    const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    if (days < 7) {
+      const minEnd = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const minEndStr = minEnd.toISOString().split("T")[0];
+      return {
+        ok: false,
+        ready: false,
+        minimumHireNotMet: true,
+        suggestedEndDate: minEndStr,
+        reason: `Minimum hire is 1 week. Earliest end date for ${state.startDate} start is ${minEndStr}.`,
+      };
+    }
+  }
 
   if (!scooterHold.ok) {
     booking.status = "PENDING";
