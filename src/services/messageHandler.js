@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 /**
  * Message Handler
@@ -21,22 +21,24 @@
  * All other messages go through the Marcel AI (booking conversations).
  */
 
-const Hire    = require('../models/Hire');
-const Service = require('../models/Service');
-const Message = require('../models/Message');
-const { getReply } = require('./aiService');
-const platformMessenger = require('./platformMessenger');
-const bookingStateService = require('./bookingStateService');
+const Hire = require("../models/Hire");
+const Service = require("../models/Service");
+const Message = require("../models/Message");
+const { getReply } = require("./aiService");
+const platformMessenger = require("./platformMessenger");
+const bookingStateService = require("./bookingStateService");
 
-const DAVE_WHATSAPP  = process.env.DAVE_WHATSAPP  || '+61431398443';
-const COLE_WHATSAPP  = process.env.COLE_WHATSAPP  || '+61493654132';
-const DAVE_CHAT_ID   = DAVE_WHATSAPP.replace(/^\+/, '') + '@c.us';
+const DAVE_WHATSAPP = process.env.DAVE_WHATSAPP || "+61431398443";
+const COLE_WHATSAPP = process.env.COLE_WHATSAPP || "+61493654132";
+const DAVE_CHAT_ID = DAVE_WHATSAPP.replace(/^\+/, "") + "@c.us";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function isFromDave(platformId) {
-  return platformId === DAVE_CHAT_ID ||
-         platformId === DAVE_WHATSAPP.replace(/^\+/, '') + '@c.us';
+  return (
+    platformId === DAVE_CHAT_ID ||
+    platformId === DAVE_WHATSAPP.replace(/^\+/, "") + "@c.us"
+  );
 }
 
 /**
@@ -46,8 +48,8 @@ function isFromDave(platformId) {
  */
 function extractOdometerReading(text) {
   if (!text) return null;
-  const cleaned = text.replace(/,/g, '').replace(/km/gi, '').trim();
-  const match   = cleaned.match(/\b(\d{3,6})\b/);
+  const cleaned = text.replace(/,/g, "").replace(/km/gi, "").trim();
+  const match = cleaned.match(/\b(\d{3,6})\b/);
   if (!match) return null;
   const num = parseInt(match[1], 10);
   // Sanity check: must be between 0 and 999999
@@ -62,7 +64,9 @@ function extractOdometerReading(text) {
 function isDaveConfirmation(text) {
   if (!text) return false;
   const lower = text.toLowerCase();
-  return /\b(yes|yep|yeah|yup|sure|confirmed|confirm|can do|no worries|on my way|will do|sounds good|done deal|absolutely|affirmative)\b/.test(lower);
+  return /\b(yes|yep|yeah|yup|sure|confirmed|confirm|can do|no worries|on my way|will do|sounds good|done deal|absolutely|affirmative)\b/.test(
+    lower,
+  );
 }
 
 /**
@@ -72,19 +76,21 @@ function isDaveConfirmation(text) {
 function isDaveJobDone(text) {
   if (!text) return false;
   const lower = text.toLowerCase();
-  return /\b(done|complete|completed|finished|all done|job done|service done|sorted)\b/.test(lower);
+  return /\b(done|complete|completed|finished|all done|job done|service done|sorted)\b/.test(
+    lower,
+  );
 }
 
 async function findDaveServiceForReply(text) {
   const openServices = await Service.find({
-    status: { $in: ['SCHEDULED', 'IN_PROGRESS'] },
+    status: { $in: ["SCHEDULED", "IN_PROGRESS"] },
   }).sort({ created_at: -1 });
 
   if (!openServices.length) return null;
 
-  const lower = String(text || '').toLowerCase();
+  const lower = String(text || "").toLowerCase();
   const matched = openServices.find((service) => {
-    const plate = String(service.scooter_plate || '').toLowerCase();
+    const plate = String(service.scooter_plate || "").toLowerCase();
     return plate && lower.includes(plate);
   });
 
@@ -102,11 +108,11 @@ function buildDaveJobMessage(hire, service) {
 
 Scooter:     ${hire.scooter_plate}
 Hirer:       ${hire.hirer_name}
-Address:     ${service.service_location || 'TBC'}
+Address:     ${service.service_location || "TBC"}
 Phone:       ${hire.hirer_phone || hire.hirer_whatsapp_id}
 Current km:  ${hire.current_odometer}
 Service due: ${hire.next_service_due_km}km
-Time:        ${service.scheduled_date || 'TBC'} at ${service.scheduled_time || 'TBC'}
+Time:        ${service.scheduled_date || "TBC"} at ${service.scheduled_time || "TBC"}
 
 Once you're done please reply with:
 1. Confirmed complete
@@ -144,14 +150,20 @@ function buildServiceCompleteMessage(hire) {
  * @param {Object} message - Saved Message document from DB
  */
 async function processIncomingMessage(message) {
-  const { platform = 'whatsapp', platform_id, message_body } = message;
-  const text = (message_body || '').trim();
+  const { platform = "whatsapp", platform_id, message_body } = message;
+  const text = (message_body || "").trim();
 
-  console.log(`📨 Handler received: from=${platform_id} text="${text.substring(0, 80)}"`);
+  console.log(
+    `📨 Handler received: from=${platform_id} text="${text.substring(0, 80)}"`,
+  );
 
   if (/^(start over|restart|reset|new booking|start again)$/i.test(text)) {
     await bookingStateService.resetActiveBooking(platform, platform_id);
-    await sendMessage(platform, platform_id, 'No worries, starting fresh. What are you planning to use the scooter for?');
+    await sendMessage(
+      platform,
+      platform_id,
+      "No worries, starting fresh. What are you planning to use the scooter for?",
+    );
     return;
   }
 
@@ -162,24 +174,33 @@ async function processIncomingMessage(message) {
   }
 
   // ── Find active hire for this hirer ─────────────────────────────────────
-  const hire = platform === 'whatsapp'
-    ? await Hire.findOne({
-        hirer_whatsapp_id: platform_id,
-        status: 'ACTIVE',
-      })
-    : null;
+  const hire =
+    platform === "whatsapp"
+      ? await Hire.findOne({
+          hirer_whatsapp_id: platform_id,
+          status: "ACTIVE",
+        })
+      : null;
 
   if (hire) {
     // ── FLOW 2: Hirer sends odometer number ─────────────────────────────
     const odometerReading = extractOdometerReading(text);
 
-    if (odometerReading !== null && hire.thursday_check_sent && !hire.thursday_check_responded) {
+    if (
+      odometerReading !== null &&
+      hire.thursday_check_sent &&
+      !hire.thursday_check_responded
+    ) {
       await handleOdometerResponse(hire, odometerReading, message);
       return;
     }
 
     // ── FLOW 3: Hirer gives day/time/location for service ───────────────
-    if (hire.service_needed && hire.service_booking_initiated && !hire.service_scheduled) {
+    if (
+      hire.service_needed &&
+      hire.service_booking_initiated &&
+      !hire.service_scheduled
+    ) {
       await handleServiceScheduling(hire, text, message);
       return;
     }
@@ -194,32 +215,40 @@ async function sendMessage(platform, to, text, messageData = {}) {
 }
 
 function looksLikeInternalReply(text) {
-  const value = String(text || '').trim().toLowerCase();
+  const value = String(text || "")
+    .trim()
+    .toLowerCase();
   if (!value) return false;
 
   return [
     "i'll save",
-    'i will save',
-    'let me save',
-    'save the details',
-    'save these details',
-    'save the delivery option',
-    'save_booking_field',
-    'booking status',
-    'tool call',
-    'the customer provided',
-    'the user provided',
-  ].some(pattern => value.includes(pattern));
+    "i will save",
+    "let me save",
+    "save the details",
+    "save these details",
+    "save the delivery option",
+    "save_booking_field",
+    "booking status",
+    "tool call",
+    "the customer provided",
+    "the user provided",
+  ].some((pattern) => value.includes(pattern));
 }
 
 async function buildAIContext(platform, platformId, hire) {
-  const { state: bookingState, customer } = await bookingStateService.loadState(platform, platformId);
-  let customerContext = bookingStateService.buildBookingContext(bookingState, customer);
+  const { state: bookingState, customer } = await bookingStateService.loadState(
+    platform,
+    platformId,
+  );
+  let customerContext = bookingStateService.buildBookingContext(
+    bookingState,
+    customer,
+  );
 
   if (hire) {
     customerContext += `\nACTIVE HIRE:\n`;
     customerContext += `Scooter: ${hire.scooter_plate} (${hire.scooter_type})\n`;
-    customerContext += `Current odometer: ${hire.current_odometer || 'unknown'}km\n`;
+    customerContext += `Current odometer: ${hire.current_odometer || "unknown"}km\n`;
     customerContext += `Next service due: ${hire.next_service_due_km}km\n`;
     customerContext += `Hire started: ${hire.hire_start_date}\n`;
     customerContext += `Hire ends: ${hire.hire_end_date}\n`;
@@ -234,11 +263,16 @@ async function fallbackReply(platform, platformId) {
 }
 
 function isPaymentCheckMessage(text) {
-  return /\b(i\s+have\s+(paid|payed|apid)|i\s+paid|paid|payed|apid|payment\s+(done|sent|made)|check\s+(payment|paid))\b/i.test(String(text || ''));
+  return /\b(i\s+have\s+(paid|payed|apid)|i\s+paid|paid|payed|apid|payment\s+(done|sent|made)|check\s+(payment|paid))\b/i.test(
+    String(text || ""),
+  );
 }
 
 async function bookingProgressReply(platform, platformId) {
-  const finalization = await bookingStateService.finalizeBookingIfReady(platform, platformId);
+  const finalization = await bookingStateService.finalizeBookingIfReady(
+    platform,
+    platformId,
+  );
 
   // Booking already paid — customer is asking a post-payment question
   // Do NOT send payment link again — let AI answer naturally
@@ -248,25 +282,34 @@ async function bookingProgressReply(platform, platformId) {
 
   if (finalization.ok && finalization.paymentLink) {
     const booking = finalization.booking || {};
-    const weeklyRate = finalization.pricing?.weeklyRate || booking.weekly_rate || (booking.scooter_type === '125cc' ? 160 : 150);
+    const weeklyRate =
+      finalization.pricing?.weeklyRate ||
+      booking.weekly_rate ||
+      (booking.scooter_type === "125cc" ? 160 : 150);
     const deposit = finalization.pricing?.deposit || booking.deposit || 300;
-    const deliveryFee = finalization.pricing?.deliveryFee ?? booking.delivery_fee ?? (booking.pickup_delivery === 'delivery' ? 40 : 0);
-    const amountUpfront = finalization.amountUpfront || booking.amount_upfront || (weeklyRate + deposit + deliveryFee);
+    const deliveryFee =
+      finalization.pricing?.deliveryFee ??
+      booking.delivery_fee ??
+      (booking.pickup_delivery === "delivery" ? 40 : 0);
+    const amountUpfront =
+      finalization.amountUpfront ||
+      booking.amount_upfront ||
+      weeklyRate + deposit + deliveryFee;
 
     return [
       `Thanks, we have everything now. Your upfront payment is $${amountUpfront}.`,
-      `That includes $${weeklyRate} for the first week, $${deposit} refundable deposit${deliveryFee ? `, and $${deliveryFee} delivery` : ''}.`,
+      `That includes $${weeklyRate} for the first week, $${deposit} refundable deposit${deliveryFee ? `, and $${deliveryFee} delivery` : ""}.`,
       `After that it is $${weeklyRate} per week while you have the scooter.`,
       `Payment link: ${finalization.paymentLink}`,
-    ].join('\n\n');
+    ].join("\n\n");
   }
 
   if (finalization.ready && !finalization.ok) {
-    console.error('Payment link generation failed:', finalization.reason);
+    console.error("Payment link generation failed:", finalization.reason);
     if (finalization.noAvailability) {
       return `${finalization.reason} I will check with the team and come back with the closest option.`;
     }
-    return 'Thanks, we have everything now. I could not create the payment link automatically, so the team will send it through shortly.';
+    return "Thanks, we have everything now. I could not create the payment link automatically, so the team will send it through shortly.";
   }
 
   return fallbackReply(platform, platformId);
@@ -287,13 +330,13 @@ async function handleDaveMessage(text, message) {
     await sendMessage(
       message.platform,
       DAVE_WHATSAPP,
-      `I have ${service.count} open service jobs. Please reply with the scooter rego as well, for example: "Done ABC123 3205km".`
+      `I have ${service.count} open service jobs. Please reply with the scooter rego as well, for example: "Done ABC123 3205km".`,
     );
     return;
   }
 
   if (!service) {
-    console.log('ℹ️  No scheduled service found for Dave message');
+    console.log("ℹ️  No scheduled service found for Dave message");
     return;
   }
 
@@ -305,35 +348,35 @@ async function handleDaveMessage(text, message) {
 
     // Update service record
     const now = new Date().toISOString();
-    service.status               = 'COMPLETED';
+    service.status = "COMPLETED";
     service.service_completed_at = now;
-    service.updated_at           = now;
+    service.updated_at = now;
 
     if (odometerReading) {
-      service.odometer_at_service  = odometerReading;
-      service.next_service_due_km  = odometerReading + 2000;
+      service.odometer_at_service = odometerReading;
+      service.next_service_due_km = odometerReading + 2000;
     }
 
     await service.save();
 
     // Update hire record
     if (hire) {
-      hire.service_needed           = false;
-      hire.service_scheduled        = false;
-      hire.service_booking_initiated = '';
-      hire.current_odometer         = odometerReading || hire.current_odometer;
-      hire.next_service_due_km      = odometerReading
+      hire.service_needed = false;
+      hire.service_scheduled = false;
+      hire.service_booking_initiated = "";
+      hire.current_odometer = odometerReading || hire.current_odometer;
+      hire.next_service_due_km = odometerReading
         ? odometerReading + 2000
         : hire.next_service_due_km;
       // Reset Thursday check flags so cycle continues
-      hire.thursday_check_responded  = now;
-      hire.thursday_check_sent       = '';
-      hire.thursday_reminder_sent    = '';
-      hire.escalated_to_cole         = '';
-      hire.updated_at                = now;
+      hire.thursday_check_responded = now;
+      hire.thursday_check_sent = "";
+      hire.thursday_reminder_sent = "";
+      hire.escalated_to_cole = "";
+      hire.updated_at = now;
       await hire.save();
 
-      const Fleet = require('../models/Fleet');
+      const Fleet = require("../models/Fleet");
       await Fleet.findOneAndUpdate(
         { scooter_plate: hire.scooter_plate },
         {
@@ -342,13 +385,15 @@ async function handleDaveMessage(text, message) {
             next_service_due: String(hire.next_service_due_km),
             updated_at: now,
           },
-        }
+        },
       );
 
       // Message hirer — service complete
       const hirerMsg = buildServiceCompleteMessage(hire);
       await sendMessage(message.platform, hire.hirer_whatsapp_id, hirerMsg);
-      console.log(`✅ Service complete. Next service due: ${hire.next_service_due_km}km`);
+      console.log(
+        `✅ Service complete. Next service due: ${hire.next_service_due_km}km`,
+      );
     }
 
     return;
@@ -359,7 +404,7 @@ async function handleDaveMessage(text, message) {
     if (!hire) return;
 
     // Update service as confirmed by mechanic
-    service.status = 'IN_PROGRESS';
+    service.status = "IN_PROGRESS";
     service.mechanic_confirmed_at = new Date().toISOString();
     await service.save();
 
@@ -372,7 +417,9 @@ async function handleDaveMessage(text, message) {
   }
 
   // Dave sent something else — check if escalation needed after 24h/48h
-  console.log(`ℹ️  Dave message not matched as confirmation or done: "${text}"`);
+  console.log(
+    `ℹ️  Dave message not matched as confirmation or done: "${text}"`,
+  );
 }
 
 /**
@@ -383,37 +430,41 @@ async function handleOdometerResponse(hire, reading, message) {
 
   // Mark Thursday check as responded
   hire.thursday_check_responded = new Date().toISOString();
-  await hire.addOdometerReading(reading, 'THURSDAY_CHECK');
+  await hire.addOdometerReading(reading, "THURSDAY_CHECK");
 
   const kmUntilService = hire.next_service_due_km - reading;
-  console.log(`   Next service due: ${hire.next_service_due_km}km | km until service: ${kmUntilService}km`);
+  console.log(
+    `   Next service due: ${hire.next_service_due_km}km | km until service: ${kmUntilService}km`,
+  );
 
   // Check if within 200km of service — trigger service booking
   if (kmUntilService <= 200) {
-    console.log(`⚠️  Service due soon! Triggering service booking for ${hire.scooter_plate}`);
+    console.log(
+      `⚠️  Service due soon! Triggering service booking for ${hire.scooter_plate}`,
+    );
 
     // Create service record
     const service = new Service({
-      service_id:          'SVC-' + Date.now(),
-      scooter_plate:       hire.scooter_plate,
-      scooter_type:        hire.scooter_type,
-      service_type:        'REGULAR_2000KM',
-      hire_id:             hire.hire_id,
-      hirer_name:          hire.hirer_name,
-      hirer_phone:         hire.hirer_phone,
-      hirer_whatsapp_id:   hire.hirer_whatsapp_id,
+      service_id: "SVC-" + Date.now(),
+      scooter_plate: hire.scooter_plate,
+      scooter_type: hire.scooter_type,
+      service_type: "REGULAR_2000KM",
+      hire_id: hire.hire_id,
+      hirer_name: hire.hirer_name,
+      hirer_phone: hire.hirer_phone,
+      hirer_whatsapp_id: hire.hirer_whatsapp_id,
       previous_service_km: hire.current_odometer,
       next_service_due_km: hire.next_service_due_km,
-      mechanic_name:       'Dave',
-      mechanic_phone:      DAVE_WHATSAPP,
-      status:              'SCHEDULED',
+      mechanic_name: "Dave",
+      mechanic_phone: DAVE_WHATSAPP,
+      status: "SCHEDULED",
     });
     await service.save();
 
     // Mark hire as service booking initiated
-    hire.service_needed            = true;
+    hire.service_needed = true;
     hire.service_booking_initiated = new Date().toISOString();
-    hire.service_id                = service.service_id;
+    hire.service_id = service.service_id;
     await hire.save();
 
     // Message hirer — ask for day/time/location
@@ -432,29 +483,33 @@ async function handleOdometerResponse(hire, reading, message) {
  * FLOW 3: Hirer gives day/time/location for service
  */
 async function handleServiceScheduling(hire, text, message) {
-  console.log(`📅 Service scheduling response from ${hire.hirer_name}: "${text}"`);
+  console.log(
+    `📅 Service scheduling response from ${hire.hirer_name}: "${text}"`,
+  );
 
   // Find the pending service record
   const service = await Service.findOne({
     hire_id: hire.hire_id,
-    status:  'SCHEDULED',
+    status: "SCHEDULED",
   });
 
   if (!service) {
-    console.log('ℹ️  No scheduled service found');
+    console.log("ℹ️  No scheduled service found");
     return;
   }
 
   // Parse day/time/location from hirer's message
   // We store the raw text and let the message speak for itself to Dave
   // Simple parsing — look for day names and times
-  const dayMatch  = text.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)\b/i);
+  const dayMatch = text.match(
+    /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)\b/i,
+  );
   const timeMatch = text.match(/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/i);
 
-  service.scheduled_date    = dayMatch  ? dayMatch[0]  : text;
-  service.scheduled_time    = timeMatch ? timeMatch[0] : 'TBC';
-  service.service_location  = text; // store full response as location for Dave
-  service.updated_at        = new Date().toISOString();
+  service.scheduled_date = dayMatch ? dayMatch[0] : text;
+  service.scheduled_time = timeMatch ? timeMatch[0] : "TBC";
+  service.service_location = text; // store full response as location for Dave
+  service.updated_at = new Date().toISOString();
   await service.save();
 
   // Mark hire as scheduled
@@ -477,10 +532,16 @@ async function handleServiceScheduling(hire, text, message) {
 async function handleAIConversation(platform, platformId, text, message, hire) {
   try {
     // Pre-fill known fields for returning customers (runs fast, only updates if needed)
-    await bookingStateService.prefillFromCustomerProfile(platform, platformId).catch(() => {});
+    await bookingStateService
+      .prefillFromCustomerProfile(platform, platformId)
+      .catch(() => {});
 
     if (message.media_url) {
-      const photoSave = await bookingStateService.saveLicencePhoto(platform, platformId, message.media_url);
+      const photoSave = await bookingStateService.saveLicencePhoto(
+        platform,
+        platformId,
+        message.media_url,
+      );
 
       if (photoSave?.ok) {
         message.ai_processed = true;
@@ -497,11 +558,18 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
         if (replyText) {
           await sendMessage(platform, platformId, replyText);
         }
-        console.log(`✅ Licence photo URL saved for ${platformId}: ${photoSave.field}`);
+        console.log(
+          `✅ Licence photo URL saved for ${platformId}: ${photoSave.field}`,
+        );
         return;
       }
 
-      await sendMessage(platform, platformId, photoSave?.reason || 'I could not save that licence photo. Please send it again.');
+      await sendMessage(
+        platform,
+        platformId,
+        photoSave?.reason ||
+          "I could not save that licence photo. Please send it again.",
+      );
       console.log(`✅ Licence photo validation reply sent to ${platformId}`);
       return;
     }
@@ -512,10 +580,14 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     }
 
     if (isPaymentCheckMessage(text)) {
-      const { booking } = await bookingStateService.loadState(platform, platformId);
-      const isPaid = booking?.payment_status === 'PAID' || booking?.status === 'CONFIRMED';
+      const { booking } = await bookingStateService.loadState(
+        platform,
+        platformId,
+      );
+      const isPaid =
+        booking?.payment_status === "PAID" || booking?.status === "CONFIRMED";
       const replyText = isPaid
-        ? 'Thanks, I can see your payment has been received and your booking is confirmed.'
+        ? "Thanks, I can see your payment has been received and your booking is confirmed."
         : "Thanks for letting me know. I can't see the payment confirmed in the system yet. It can take a minute after checkout; once Stripe confirms it, I'll send the booking confirmation automatically.";
 
       await sendMessage(platform, platformId, replyText);
@@ -529,14 +601,18 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     if (
       progressReply !== null &&
       /payment link|pay|payment|link/i.test(text) &&
-      !progressReply.includes('What are you planning')
+      !progressReply.includes("What are you planning")
     ) {
       await sendMessage(platform, platformId, progressReply);
       console.log(`Booking progress/payment reply sent to ${platformId}`);
       return;
     }
 
-    const fallbackSave = await bookingStateService.applyExpectedFieldFallback(platform, platformId, text);
+    const fallbackSave = await bookingStateService.applyExpectedFieldFallback(
+      platform,
+      platformId,
+      text,
+    );
 
     if (fallbackSave?.ok) {
       message.ai_processed = true;
@@ -571,9 +647,9 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
 
     const conversationMessages = history
       .reverse()
-      .filter(m => String(m.message_body || '').trim())
-      .map(m => ({
-        role:    m.direction === 'INCOMING' ? 'user' : 'assistant',
+      .filter((m) => String(m.message_body || "").trim())
+      .map((m) => ({
+        role: m.direction === "INCOMING" ? "user" : "assistant",
         content: m.message_body,
       }));
 
@@ -583,7 +659,11 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     let rejectedFields = [];
 
     if (result?.toolCalls?.length) {
-      const applied = await bookingStateService.applyToolCalls(platform, platformId, result.toolCalls);
+      const applied = await bookingStateService.applyToolCalls(
+        platform,
+        platformId,
+        result.toolCalls,
+      );
       savedFields = applied.saved;
       rejectedFields = applied.rejected;
       message.ai_processed = true;
@@ -595,36 +675,47 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
       await message.save();
 
       if (savedFields.length) {
-        console.log('✅ Booking fields saved:', savedFields);
+        console.log("✅ Booking fields saved:", savedFields);
       }
       if (rejectedFields.length) {
-        console.warn('⚠️  Booking fields rejected:', rejectedFields);
+        console.warn("⚠️  Booking fields rejected:", rejectedFields);
       }
     }
+
+    await bookingStateService.applyExpectedFieldFallback(
+      platform,
+      platformId,
+      message.message_body,
+    );
 
     if (savedFields.length) {
       result = { text: await bookingProgressReply(platform, platformId) };
     } else if (result?.text) {
-      await bookingStateService.inferFromAssistantReply(platform, platformId, result.text);
+      await bookingStateService.inferFromAssistantReply(
+        platform,
+        platformId,
+        result.text,
+      );
     }
 
     if (!result || !result.text) {
-      console.log('ℹ️  AI returned no reply; using deterministic next question');
+      console.log(
+        "ℹ️  AI returned no reply; using deterministic next question",
+      );
       result = { text: await fallbackReply(platform, platformId) };
     }
 
     let replyText = result.text;
     if (looksLikeInternalReply(replyText)) {
-      console.warn('⚠️  Blocked internal AI reply:', replyText);
+      console.warn("⚠️  Blocked internal AI reply:", replyText);
       replyText = await fallbackReply(platform, platformId);
     }
 
     // Send reply
     await sendMessage(platform, platformId, replyText);
     console.log(`✅ AI reply sent to ${platformId}`);
-
   } catch (err) {
-    console.error('❌ AI conversation error:', err.message);
+    console.error("❌ AI conversation error:", err.message);
   }
 }
 
