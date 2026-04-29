@@ -78,6 +78,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+function redirectToFrontend(path) {
+  return (req, res) => {
+    const frontendUrl = (process.env.FRONTEND_URL || process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
+    res.redirect(302, `${frontendUrl}${path}`);
+  };
+}
+
+app.get('/payment-success', redirectToFrontend('/payment-success'));
+app.get('/payment-cancel', redirectToFrontend('/payment-cancel'));
+
 // Auth routes (public - no auth required)
 app.use('/api/auth', authRoutes);
 app.use('/api/meta', metaRoutes);

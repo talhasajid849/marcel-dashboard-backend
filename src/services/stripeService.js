@@ -17,6 +17,15 @@ class StripeService {
     this.secretKey = process.env.STRIPE_SECRET_KEY || '';
   }
 
+  getCheckoutRedirectBaseUrl() {
+    return (
+      process.env.STRIPE_REDIRECT_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.PUBLIC_URL ||
+      'https://honkhireco.com.au'
+    ).replace(/\/$/, '');
+  }
+
   // ── Low level Stripe API call ─────────────────────────────────────────────
 
   stripeRequest(method, path, params = {}) {
@@ -109,8 +118,8 @@ class StripeService {
         'metadata[start_date]':     booking.start_date || '',
         'metadata[end_date]':       booking.end_date   || '',
         expires_at: expiresAt,
-        success_url: `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-success`,
-        cancel_url:  `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-cancel`,
+        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success`,
+        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel`,
       });
 
       if (!session?.url) {
@@ -226,8 +235,8 @@ class StripeService {
         'metadata[subscription_id]': subscription.subscription_id,
         'metadata[booking_id]': subscription.booking_id,
         'metadata[week_number]': weekNumber,
-        success_url: `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-success`,
-        cancel_url:  `${process.env.PUBLIC_URL || 'https://honkhireco.com.au'}/payment-cancel`,
+        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success`,
+        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel`,
       });
 
       if (!session?.url) return null;
