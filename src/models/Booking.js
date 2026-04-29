@@ -1,42 +1,42 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const bookingSchema = new mongoose.Schema(
   {
     // Core Identifiers
-    booking_id: { 
-      type: String, 
-      required: true, 
-      unique: true, 
-      index: true 
+    booking_id: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
     },
-    customer_id: { 
-      type: String, 
-      index: true 
+    customer_id: {
+      type: String,
+      index: true,
     },
-    platform_id: { 
-      type: String, 
-      index: true 
+    platform_id: {
+      type: String,
+      index: true,
     },
-    tenant_id: { 
-      type: String, 
-      default: 'tenant_noosa' 
+    tenant_id: {
+      type: String,
+      default: "tenant_noosa",
     },
 
     // Platform & Type
     platform: {
       type: String,
-      enum: ['whatsapp', 'messenger', 'instagram', ''],
-      default: '',
-      index: true
+      enum: ["whatsapp", "messenger", "instagram", ""],
+      default: "",
+      index: true,
     },
     scooter_type: {
       type: String,
-      enum: ['50cc', '125cc', ''],
-      default: ''
+      enum: ["50cc", "125cc", ""],
+      default: "",
     },
-    scooter_plate: { 
+    scooter_plate: {
       type: String,
-      index: true 
+      index: true,
     },
 
     // Dates
@@ -49,9 +49,9 @@ const bookingSchema = new mongoose.Schema(
 
     // Customer Information
     name: String,
-    phone: { 
+    phone: {
       type: String,
-      index: true 
+      index: true,
     },
     email: String,
     address: String,
@@ -69,61 +69,61 @@ const bookingSchema = new mongoose.Schema(
     // Pricing
     amount_upfront: Number,
     weekly_rate: Number,
-    deposit: { 
-      type: Number, 
-      default: 300 
+    deposit: {
+      type: Number,
+      default: 300,
     },
     delivery_fee: Number,
 
     // Payment Information
     stripe_link: String,
-    stripe_session_id: { 
-      type: String, 
-      index: true, 
-      sparse: true 
+    stripe_session_id: {
+      type: String,
+      index: true,
+      sparse: true,
     },
     stripe_customer_id: String,
     stripe_payment_intent_id: String,
     stripe_session_expires_at: String,
     stripe_session_expired_at: String,
-    payment_status: { 
-      type: String, 
-      default: 'PENDING',
-      enum: ['PENDING', 'UNPAID', 'PAID', 'REFUNDED', 'EXPIRED']
+    payment_status: {
+      type: String,
+      default: "PENDING",
+      enum: ["PENDING", "UNPAID", "PAID", "REFUNDED", "EXPIRED"],
     },
     payment_received_at: String,
 
     // Booking Status
     status: {
       type: String,
-      default: 'PENDING',
+      default: "PENDING",
       enum: [
-        'PENDING',
-        'HELD_AWAITING_PAYMENT',
-        'CONFIRMED',
-        'CANCELLED',
-        'COMPLETED',
-        'PAYMENT_EXPIRED'
+        "PENDING",
+        "HELD_AWAITING_PAYMENT",
+        "CONFIRMED",
+        "CANCELLED",
+        "COMPLETED",
+        "PAYMENT_EXPIRED",
       ],
-      index: true
+      index: true,
     },
 
     // Payment Reminder Tracking (add these)
-reminder_24h_sent: String,
-reminder_6h_sent: String,
-reminder_2h_sent: String,
+    reminder_24h_sent: String,
+    reminder_6h_sent: String,
+    reminder_2h_sent: String,
 
     // Timestamps
-    created_at: { 
-      type: String, 
+    created_at: {
+      type: String,
       default: () => new Date().toISOString(),
-      index: true
+      index: true,
     },
     confirmed_at: String,
     released_at: String,
-    updated_at: { 
-      type: String, 
-      default: () => new Date().toISOString() 
+    updated_at: {
+      type: String,
+      default: () => new Date().toISOString(),
     },
 
     // Hold Management
@@ -133,6 +133,7 @@ reminder_2h_sent: String,
     reminder_1_sent: String,
     reminder_2_sent: String,
     reminder_3_sent: String,
+    cancellation_sent: { type: Boolean, default: false },
 
     // Webhook Tracking
     last_webhook_event_id: String,
@@ -141,12 +142,12 @@ reminder_2h_sent: String,
     follow_up_sent_at: String,
 
     // Internal Notes
-    notes: String
+    notes: String,
   },
   {
     minimize: false,
-    timestamps: false
-  }
+    timestamps: false,
+  },
 );
 
 // Compound Indexes for Performance
@@ -156,28 +157,28 @@ bookingSchema.index({ start_date: 1, end_date: 1 });
 bookingSchema.index({ customer_id: 1, created_at: -1 });
 
 // Methods
-bookingSchema.methods.updateTimestamp = function() {
+bookingSchema.methods.updateTimestamp = function () {
   this.updated_at = new Date().toISOString();
   return this;
 };
 
 // Virtual for customer display name
-bookingSchema.virtual('customer_name').get(function() {
-  return this.name || 'Unknown Customer';
+bookingSchema.virtual("customer_name").get(function () {
+  return this.name || "Unknown Customer";
 });
 
 // Virtual for customer phone display
-bookingSchema.virtual('customer_phone').get(function() {
-  return this.phone || 'N/A';
+bookingSchema.virtual("customer_phone").get(function () {
+  return this.phone || "N/A";
 });
 
-// Virtual for customer email display  
-bookingSchema.virtual('customer_email').get(function() {
-  return this.email || 'N/A';
+// Virtual for customer email display
+bookingSchema.virtual("customer_email").get(function () {
+  return this.email || "N/A";
 });
 
 // Ensure virtuals are included in JSON
-bookingSchema.set('toJSON', { virtuals: true });
-bookingSchema.set('toObject', { virtuals: true });
+bookingSchema.set("toJSON", { virtuals: true });
+bookingSchema.set("toObject", { virtuals: true });
 
-module.exports = mongoose.model('Booking', bookingSchema);
+module.exports = mongoose.model("Booking", bookingSchema);
