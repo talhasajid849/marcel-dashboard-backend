@@ -2,7 +2,184 @@ const express = require('express');
 const router = express.Router();
 const Booking = require('../models/Booking');
 const Customer = require('../models/Customer');
+const Fleet = require('../models/Fleet');
 const emailService = require('../services/emailService');
+
+const EDITABLE_BOOKING_FIELDS = [
+  'customer_id',
+  'platform',
+  'platform_id',
+  'scooter_type',
+  'scooter_plate',
+  'start_date',
+  'end_date',
+  'pickup_delivery',
+  'delivery_address',
+  'name',
+  'phone',
+  'email',
+  'address',
+  'country_of_origin',
+  'next_of_kin',
+  'next_of_kin_phone',
+  'licence_type',
+  'licence_photo_front_url',
+  'licence_photo_back_url',
+  'license_photo_front_url',
+  'license_photo_back_url',
+  'amount_upfront',
+  'weekly_rate',
+  'deposit',
+  'delivery_fee',
+  'status',
+  'payment_status',
+  'notes',
+];
+
+function pickEditableBookingFields(source) {
+  return EDITABLE_BOOKING_FIELDS.reduce((acc, field) => {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      acc[field] = source[field];
+    }
+    return acc;
+  }, {});
+}
+
+function startOfDay(date) {
+  const value = new Date(date);
+  if (Number.isNaN(value.getTime())) return null;
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function datesOverlap(startA, endA, startB, endB) {
+  const aStart = startOfDay(startA);
+  const aEnd = startOfDay(endA);
+  const bStart = startOfDay(startB);
+  const bEnd = startOfDay(endB);
+  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
+function bookingBlocksDates(booking) {
+  if (booking.status === 'CONFIRMED') return true;
+  if (booking.status !== 'HELD_AWAITING_PAYMENT') return false;
+  if (!booking.hold_expires_at) return false;
+  const holdExpiresAt = new Date(booking.hold_expires_at);
+  return !Number.isNaN(holdExpiresAt.getTime()) && holdExpiresAt > new Date();
+}
+
+function validateBookingDates(data) {
+  if (!data.start_date || !data.end_date) return null;
+
+  const start = startOfDay(data.start_date);
+  const end = startOfDay(data.end_date);
+  if (!start || !end) return 'Start date and end date must be valid dates';
+  if (end < start) return 'End date cannot be before start date';
+
+  const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) return 'Bookings must be at least 1 week';
+
+  return null;
+}
+
+function applyBookingPricing(data) {
+  const weeklyRate =
+    Number(data.weekly_rate) ||
+    (data.scooter_type === '125cc' ? 160 : data.scooter_type === '50cc' ? 150 : 0);
+  const deposit = Number(data.deposit) || 300;
+  const deliveryFee =
+    Number(data.delivery_fee) ||
+    (data.pickup_delivery === 'delivery' ? 40 : 0);
+
+  if (!data.weekly_rate && weeklyRate) data.weekly_rate = weeklyRate;
+  if (!data.deposit) data.deposit = deposit;
+  data.delivery_fee = deliveryFee;
+  if (!data.amount_upfront && weeklyRate) {
+    data.amount_upfront = weeklyRate + deposit + deliveryFee;
+  }
+}
+
+async function validateScooterAvailability(data, currentBookingId = '') {
+  if (!data.scooter_plate || !data.start_date || !data.end_date) return null;
+
+  const scooter = await Fleet.findOne({ scooter_plate: data.scooter_plate }).lean();
+  if (!scooter) return 'Selected scooter does not exist';
+  if (['MAINTENANCE', 'RETIRED'].includes(scooter.status)) {
+    return 'Selected scooter is not available for bookings';
+  }
+
+  if (data.scooter_type && scooter.scooter_type !== data.scooter_type) {
+    return `Selected scooter is ${scooter.scooter_type}, not ${data.scooter_type}`;
+  }
+
+  const conflicts = await Booking.find({
+    booking_id: { $ne: currentBookingId },
+    scooter_plate: data.scooter_plate,
+    status: { $in: ['HELD_AWAITING_PAYMENT', 'CONFIRMED'] },
+    payment_status: { $ne: 'EXPIRED' },
+    start_date: { $exists: true, $nin: [null, ''] },
+    end_date: { $exists: true, $nin: [null, ''] },
+  }).lean();
+
+  const conflictingBooking = conflicts.find(
+    (booking) =>
+      bookingBlocksDates(booking) &&
+      datesOverlap(data.start_date, data.end_date, booking.start_date, booking.end_date),
+  );
+
+  return conflictingBooking
+    ? `Scooter ${data.scooter_plate} already has booking ${conflictingBooking.booking_id} for overlapping dates`
+    : null;
+}
+
+function isActiveToday(booking) {
+  return datesOverlap(new Date(), new Date(), booking.start_date, booking.end_date);
+}
+
+async function syncFleetForBooking(booking, oldScooterPlate = '') {
+  if (oldScooterPlate && oldScooterPlate !== booking.scooter_plate) {
+    await Fleet.findOneAndUpdate(
+      {
+        scooter_plate: oldScooterPlate,
+        booking_id: booking.booking_id,
+        status: { $nin: ['MAINTENANCE', 'RETIRED'] },
+      },
+      {
+        $set: {
+          status: 'AVAILABLE',
+          booking_id: '',
+          booked_from: '',
+          booked_to: '',
+          hold_expires_at: '',
+          updated_at: new Date().toISOString(),
+        },
+      },
+    );
+  }
+
+  if (!booking.scooter_plate) return;
+
+  const blocksFleetNow =
+    booking.status === 'CONFIRMED' && isActiveToday(booking);
+
+  await Fleet.findOneAndUpdate(
+    {
+      scooter_plate: booking.scooter_plate,
+      status: { $nin: ['MAINTENANCE', 'RETIRED'] },
+    },
+    {
+      $set: {
+        status: blocksFleetNow ? 'BOOKED' : 'AVAILABLE',
+        booking_id: blocksFleetNow ? booking.booking_id : '',
+        booked_from: blocksFleetNow ? booking.start_date : '',
+        booked_to: blocksFleetNow ? booking.end_date : '',
+        hold_expires_at: '',
+        updated_at: new Date().toISOString(),
+      },
+    },
+  );
+}
 
 function normalizeBookingPhotoFields(booking, customer = null) {
   if (!booking) return booking;
@@ -263,16 +440,31 @@ router.get('/:id', async (req, res) => {
 // POST /api/bookings - Create booking
 router.post('/', async (req, res) => {
   try {
-    if (!req.body.booking_id) {
-      req.body.booking_id = 'HHC-' + Date.now();
+    const data = pickEditableBookingFields(req.body || {});
+    if (!data.booking_id) {
+      data.booking_id = 'HHC-' + Date.now();
     }
 
     const now = new Date().toISOString();
-    req.body.created_at = now;
-    req.body.updated_at = now;
+    data.created_at = now;
+    data.updated_at = now;
+    data.status = data.status || 'PENDING';
+    data.payment_status = data.payment_status || 'PENDING';
+    applyBookingPricing(data);
+
+    const dateError = validateBookingDates(data);
+    if (dateError) {
+      return res.status(400).json({ success: false, error: dateError });
+    }
+
+    const scooterError = await validateScooterAvailability(data);
+    if (scooterError) {
+      return res.status(409).json({ success: false, error: scooterError });
+    }
     
-    const booking = new Booking(req.body);
+    const booking = new Booking(data);
     await booking.save();
+    await syncFleetForBooking(booking);
 
     // 📧 Send pending booking email
     if (booking.email) {
@@ -300,12 +492,26 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
+    const existing = await Booking.findOne({ booking_id: id });
 
-    delete updates.booking_id;
-    delete updates.created_at;
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
+    }
 
+    const updates = pickEditableBookingFields(req.body || {});
     updates.updated_at = new Date().toISOString();
+    applyBookingPricing(updates);
+
+    const merged = { ...existing.toObject(), ...updates };
+    const dateError = validateBookingDates(merged);
+    if (dateError) {
+      return res.status(400).json({ success: false, error: dateError });
+    }
+
+    const scooterError = await validateScooterAvailability(merged, id);
+    if (scooterError) {
+      return res.status(409).json({ success: false, error: scooterError });
+    }
 
     const booking = await Booking.findOneAndUpdate(
       { booking_id: id },
@@ -313,9 +519,7 @@ router.patch('/:id', async (req, res) => {
       { new: true, runValidators: true }
     );
 
-    if (!booking) {
-      return res.status(404).json({ success: false, error: 'Booking not found' });
-    }
+    await syncFleetForBooking(booking, existing.scooter_plate);
 
     res.json({ success: true, data: normalizeBookingPhotoFields(booking.toObject()), message: 'Booking updated successfully' });
   } catch (error) {
@@ -332,6 +536,11 @@ router.patch('/:id/status', async (req, res) => {
 
     if (!status) {
       return res.status(400).json({ success: false, error: 'Status is required' });
+    }
+
+    const existing = await Booking.findOne({ booking_id: id });
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Booking not found' });
     }
 
     const updates = {
@@ -351,6 +560,17 @@ router.patch('/:id/status', async (req, res) => {
       updates.notes = notes;
     }
 
+    const merged = { ...existing.toObject(), ...updates };
+    const dateError = validateBookingDates(merged);
+    if (dateError) {
+      return res.status(400).json({ success: false, error: dateError });
+    }
+
+    const scooterError = await validateScooterAvailability(merged, id);
+    if (scooterError) {
+      return res.status(409).json({ success: false, error: scooterError });
+    }
+
     const booking = await Booking.findOneAndUpdate(
       { booking_id: id },
       { $set: updates },
@@ -360,6 +580,8 @@ router.patch('/:id/status', async (req, res) => {
     if (!booking) {
       return res.status(404).json({ success: false, error: 'Booking not found' });
     }
+
+    await syncFleetForBooking(booking);
 
     // 📧 Send appropriate email based on status
     if (booking.email) {
@@ -410,6 +632,8 @@ router.patch('/:id/cancel', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Booking not found' });
     }
 
+    await syncFleetForBooking(booking);
+
     // 📧 Send cancellation email
     if (booking.email) {
       try {
@@ -439,6 +663,8 @@ router.delete('/:id', async (req, res) => {
         return res.status(404).json({ success: false, error: 'Booking not found' });
       }
 
+      await syncFleetForBooking({ ...booking.toObject(), status: 'CANCELLED' }, booking.scooter_plate);
+
       res.json({ success: true, message: 'Booking permanently deleted', data: normalizeBookingPhotoFields(booking.toObject()) });
     } else {
       const booking = await Booking.findOneAndUpdate(
@@ -457,6 +683,8 @@ router.delete('/:id', async (req, res) => {
       if (!booking) {
         return res.status(404).json({ success: false, error: 'Booking not found' });
       }
+
+      await syncFleetForBooking(booking);
 
       res.json({ success: true, message: 'Booking cancelled (soft delete)', data: normalizeBookingPhotoFields(booking.toObject()) });
     }
