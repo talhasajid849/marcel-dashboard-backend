@@ -37,16 +37,11 @@ app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }), (req, 
   next();
 });
 
-// Capture raw body for Stripe signature verification
-app.use((req, res, next) => {
-  let data = '';
-  req.on('data', chunk => { data += chunk; });
-  req.on('end', () => {
-    req.rawBody = data;
-    try { req.body = JSON.parse(data); } catch { req.body = {}; }
-    next();
-  });
-});
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // Request logging

@@ -69,9 +69,6 @@ router.post("/stripe", async (req, res) => {
       .json({ success: false, error: "Invalid Stripe signature" });
   }
 
-  // Respond quickly so Stripe does not retry successful deliveries.
-  res.status(200).json({ received: true });
-
   try {
     const event = req.body;
 
@@ -87,22 +84,22 @@ router.post("/stripe", async (req, res) => {
       } else {
         await handleCheckoutCompleted(object);
       }
-      return;
+      return res.status(200).json({ received: true });
     }
 
     if (eventType === "invoice.payment_succeeded") {
       await handleInvoicePaymentSucceeded(object);
-      return;
+      return res.status(200).json({ received: true });
     }
 
     if (eventType === "invoice.payment_failed") {
       await handleInvoicePaymentFailed(object);
-      return;
+      return res.status(200).json({ received: true });
     }
 
     if (eventType === "customer.subscription.deleted") {
       await handleSubscriptionDeleted(object);
-      return;
+      return res.status(200).json({ received: true });
     }
 
     // Manual test format: { session_id: '...' }
@@ -118,8 +115,10 @@ router.post("/stripe", async (req, res) => {
         metadata: { booking_id: booking?.booking_id || "" },
       });
     }
+    return res.status(200).json({ received: true });
   } catch (err) {
     console.error("❌ Webhook error:", err.message);
+    return res.status(500).json({ success: false, error: "Webhook failed" });
   }
 });
 
@@ -147,9 +146,12 @@ async function handleCheckoutCompleted(session) {
     return;
   }
 
-  // Ignore duplicate webhooks
-  if (booking.status === "CONFIRMED") {
-    console.log("ℹ️  Already confirmed, skipping:", bookingId);
+  const wasAlreadyPaid =
+    booking.status === "CONFIRMED" && booking.payment_status === "PAID";
+
+  // Ignore duplicate webhooks only after all recoverable side effects are done.
+  if (wasAlreadyPaid && booking.confirmation_message_sent_at) {
+    console.log("ℹ️  Already confirmed and messaged, skipping:", bookingId);
     return;
   }
 
@@ -188,7 +190,7 @@ async function handleCheckoutCompleted(session) {
   // 3. Update customer stats
   // Update customer stats + tier
   const customer = await Customer.findOne({ customer_id: booking.customer_id });
-  if (customer) {
+  if (customer && !wasAlreadyPaid) {
     customer.total_bookings = (customer.total_bookings || 0) + 1;
     customer.successful_bookings = (customer.successful_bookings || 0) + 1;
     customer.total_hires = customer.successful_bookings;
@@ -236,7 +238,11 @@ async function handleCheckoutCompleted(session) {
     await subscriptionService.createFromBooking(booking);
 
   // 6. Create Stripe Subscription (auto weekly charges)
-  if (stripeCustomerId && paymentIntentId) {
+  if (
+    stripeCustomerId &&
+    paymentIntentId &&
+    !localSubscription?.stripe_subscription_id
+  ) {
     try {
       // Get payment method from PaymentIntent
       const pi = await stripeService.getPaymentIntent(paymentIntentId);
@@ -483,6 +489,7 @@ async function createHireRecord(booking, now) {
 
 async function sendConfirmationMessage(booking) {
   if (!booking.platform_id) return;
+  if (booking.confirmation_message_sent_at) return;
 
   try {
     const platformMessenger = require("../services/platformMessenger");
@@ -510,6 +517,15 @@ async function sendConfirmationMessage(booking) {
     );
 
     console.log("✅ Confirmation message sent to:", booking.platform_id);
+    await Booking.findOneAndUpdate(
+      { booking_id: booking.booking_id },
+      {
+        $set: {
+          confirmation_message_sent_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    );
   } catch (err) {
     console.error("⚠️  Confirmation message error:", err.message);
   }

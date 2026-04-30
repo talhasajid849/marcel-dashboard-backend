@@ -137,6 +137,7 @@ const bookingSchema = new mongoose.Schema(
 
     // Webhook Tracking
     last_webhook_event_id: String,
+    confirmation_message_sent_at: String,
 
     // Follow-up
     follow_up_sent_at: String,
