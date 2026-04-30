@@ -3,6 +3,39 @@ const router = express.Router();
 const Customer = require('../models/Customer');
 const Booking = require('../models/Booking');
 
+function deriveCustomerTier(customer) {
+  const successful = Number(customer?.successful_bookings || 0);
+  if (successful >= 10) return 'VIP';
+  if (successful >= 3) return 'REGULAR';
+  if (successful >= 2) return 'RETURNING';
+  return 'NEW';
+}
+
+function tierQuery(customer_tier) {
+  if (customer_tier === 'VIP') return { successful_bookings: { $gte: 10 } };
+  if (customer_tier === 'REGULAR') {
+    return { successful_bookings: { $gte: 3, $lt: 10 } };
+  }
+  if (customer_tier === 'RETURNING') return { successful_bookings: 2 };
+  if (customer_tier === 'NEW') {
+    return {
+      $or: [
+        { successful_bookings: { $exists: false } },
+        { successful_bookings: { $lt: 2 } },
+      ],
+    };
+  }
+  return {};
+}
+
+function normalizeCustomer(customer) {
+  if (!customer) return customer;
+  return {
+    ...customer,
+    customer_tier: deriveCustomerTier(customer),
+  };
+}
+
 // GET /api/customers - Get all customers
 router.get('/', async (req, res) => {
   try {
@@ -15,7 +48,7 @@ router.get('/', async (req, res) => {
     }
     
     if (customer_tier) {
-      filter.customer_tier = customer_tier;
+      filter = { $and: [filter, tierQuery(customer_tier)] };
     }
 
     if (customer_status) {
@@ -46,7 +79,7 @@ router.get('/', async (req, res) => {
     
     res.json({
       success: true,
-      data: customers,
+      data: customers.map(normalizeCustomer),
       pagination: { page: pageNum, limit: limitNum, total, pages: Math.ceil(total / limitNum) }
     });
   } catch (error) {
@@ -61,7 +94,21 @@ router.get('/stats', async (req, res) => {
     const total = await Customer.countDocuments();
     
     const by_tier = await Customer.aggregate([
-      { $group: { _id: '$customer_tier', count: { $sum: 1 } } }
+      {
+        $addFields: {
+          derived_tier: {
+            $switch: {
+              branches: [
+                { case: { $gte: ['$successful_bookings', 10] }, then: 'VIP' },
+                { case: { $gte: ['$successful_bookings', 3] }, then: 'REGULAR' },
+                { case: { $gte: ['$successful_bookings', 2] }, then: 'RETURNING' },
+              ],
+              default: 'NEW',
+            },
+          },
+        },
+      },
+      { $group: { _id: '$derived_tier', count: { $sum: 1 } } }
     ]);
 
     const by_platform = await Customer.aggregate([
@@ -93,7 +140,7 @@ router.get('/stats', async (req, res) => {
         by_tier,
         by_platform,
         lifetime: lifetime_stats[0] || {},
-        top_customers
+        top_customers: top_customers.map(normalizeCustomer)
       }
     });
   } catch (error) {
@@ -116,7 +163,7 @@ router.get('/:id', async (req, res) => {
       .limit(50)
       .lean();
     
-    res.json({ success: true, data: { ...customer, bookings } });
+    res.json({ success: true, data: { ...normalizeCustomer(customer), bookings } });
   } catch (error) {
     console.error(`GET /api/customers/${req.params.id} error:`, error);
     res.status(500).json({ success: false, error: error.message });

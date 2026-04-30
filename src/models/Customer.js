@@ -116,7 +116,7 @@ customerSchema.methods.updateTier = function() {
     this.customer_tier = 'VIP';
   } else if (successful >= 3) {
     this.customer_tier = 'REGULAR';
-  } else if (successful >= 1) {
+  } else if (successful >= 2) {
     this.customer_tier = 'RETURNING';
   } else {
     this.customer_tier = 'NEW';

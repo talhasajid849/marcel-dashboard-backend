@@ -200,11 +200,8 @@ async function handleCheckoutCompleted(session) {
     customer.updated_at = now;
 
     // Update tier based on number of completed hires
+    customer.updateTier();
     const hires = customer.successful_bookings;
-    if (hires >= 10) customer.customer_tier = "VIP";
-    else if (hires >= 3) customer.customer_tier = "REGULAR";
-    else if (hires >= 1) customer.customer_tier = "RETURNING";
-    else customer.customer_tier = "NEW";
 
     // Save licence photos to customer profile for future bookings
     if (booking.licence_photo_front_url)

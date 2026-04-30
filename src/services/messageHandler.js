@@ -263,7 +263,7 @@ async function fallbackReply(platform, platformId) {
 }
 
 function isPaymentCheckMessage(text) {
-  return /\b(i\s+have\s+(paid|payed|apid)|i\s+paid|paid|payed|apid|payment\s+(done|sent|made)|check\s+(payment|paid))\b/i.test(
+  return /\b(i(?:\s+have|'ve|’ve|ve)\s+(made\s+)?(paid|payed|apid|payment)|i\s+paid|paid|payed|apid|payment\s+(done|sent|made)|made\s+(the\s+)?payment|check\s+(payment|paid))\b/i.test(
     String(text || ""),
   );
 }
