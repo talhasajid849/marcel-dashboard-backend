@@ -144,6 +144,7 @@ class WeeklyPaymentJob {
           );
           nextWeek.reminder_sent_at = new Date().toISOString();
           nextWeek.reminder_count = (nextWeek.reminder_count || 0) + 1;
+          subscription.status = "PAUSED";
           subscription.billing_status = "SETUP_FAILED";
           subscription.billing_failure_reason =
             subscription.billing_failure_reason || "No Stripe subscription id";

@@ -187,24 +187,33 @@ class StripeService {
       const weeklyRate  = Number(booking.weekly_rate) || (booking.scooter_type === '125cc' ? 160 : 150);
       const amountCents = Math.round(weeklyRate * 100);
 
-      // Billing starts 1 week from hire start (or 7 days from now if no start date)
+      // Billing starts 1 week from hire start (or 7 days from now if no start date).
+      // For future bookings, use a trial so Stripe does not try to invoice before
+      // the first rental week has already been paid upfront.
       const startDate    = booking.start_date ? new Date(booking.start_date) : new Date();
       const billingStart = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       const anchorTs     = Math.floor(billingStart.getTime() / 1000);
+      const nowTs        = Math.floor(Date.now() / 1000);
+      const startsInFuture = anchorTs > nowTs + 300;
 
-      const subscription = await this.stripeRequest('POST', '/v1/subscriptions', {
+      const params = {
         customer:                 stripeCustomerId,
         default_payment_method:   paymentMethodId,
         'items[0][price_data][currency]':              'aud',
         'items[0][price_data][unit_amount]':           amountCents,
         'items[0][price_data][recurring][interval]':   'week',
         'items[0][price_data][product_data][name]':    `${booking.scooter_type} Weekly Hire`,
-        billing_cycle_anchor:     anchorTs,
         proration_behavior:       'none',
         collection_method:        'charge_automatically',
         'metadata[booking_id]':   booking.booking_id,
         'metadata[scooter_type]': booking.scooter_type,
-      });
+      };
+
+      if (startsInFuture) {
+        params.trial_end = anchorTs;
+      }
+
+      const subscription = await this.stripeRequest('POST', '/v1/subscriptions', params);
 
       console.log('✅ Stripe weekly subscription created:', subscription.id);
       return subscription;

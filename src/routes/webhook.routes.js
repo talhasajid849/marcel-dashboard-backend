@@ -324,6 +324,7 @@ async function handleCheckoutCompleted(session) {
       { booking_id: booking.booking_id },
       {
         $set: {
+          status: "PAUSED",
           auto_charge: false,
           billing_status: "SETUP_FAILED",
           billing_failure_reason: subscriptionSetupFailure,
@@ -466,6 +467,7 @@ async function handleInvoicePaymentFailed(invoice) {
   if (failedWeek) {
     failedWeek.status = "OVERDUE";
   }
+  subscription.status = "PAUSED";
   subscription.billing_status = "PAYMENT_FAILED";
   subscription.billing_failure_reason =
     invoice.last_finalization_error?.message ||

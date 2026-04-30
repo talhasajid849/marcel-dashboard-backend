@@ -107,12 +107,32 @@ async function reconcileCancelledBookingSubscriptions() {
   );
 }
 
+async function reconcileFailedBillingSubscriptions() {
+  await Subscription.updateMany(
+    {
+      status: 'ACTIVE',
+      billing_status: { $in: ['SETUP_FAILED', 'PAYMENT_FAILED'] },
+    },
+    {
+      $set: {
+        status: 'PAUSED',
+        updated_at: new Date().toISOString(),
+      },
+    },
+  );
+}
+
+async function reconcileSubscriptionStatuses() {
+  await reconcileCancelledBookingSubscriptions();
+  await reconcileFailedBillingSubscriptions();
+}
+
 /**
  * GET /api/subscriptions - List all subscriptions
  */
 router.get('/', async (req, res) => {
   try {
-    await reconcileCancelledBookingSubscriptions();
+    await reconcileSubscriptionStatuses();
 
     const {
       status,
@@ -158,7 +178,7 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
-    await reconcileCancelledBookingSubscriptions();
+    await reconcileSubscriptionStatuses();
 
     const [
       totalSubscriptions,
@@ -210,6 +230,8 @@ router.get('/stats', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
+    await reconcileSubscriptionStatuses();
+
     const subscription = await Subscription.findOne({
       subscription_id: req.params.id,
     });
@@ -361,17 +383,24 @@ router.post('/:id/resume', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
-    if (subscription.stripe_subscription_id) {
-      const stripeResult = await stripeService.resumeSubscription(subscription.stripe_subscription_id);
-      if (!stripeResult) {
-        return res.status(502).json({
-          success: false,
-          error: 'Failed to resume Stripe subscription',
-        });
-      }
+    if (!subscription.stripe_subscription_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot resume automatic billing because no Stripe subscription exists',
+      });
+    }
+
+    const stripeResult = await stripeService.resumeSubscription(subscription.stripe_subscription_id);
+    if (!stripeResult) {
+      return res.status(502).json({
+        success: false,
+        error: 'Failed to resume Stripe subscription',
+      });
     }
 
     subscription.status = 'ACTIVE';
+    subscription.billing_status = 'ACTIVE';
+    subscription.billing_failure_reason = '';
     subscription.updated_at = new Date().toISOString();
     await subscription.save();
 
