@@ -442,7 +442,7 @@ async function ensureCustomer(platform, platformId, state = {}) {
  */
 async function prefillFromCustomerProfile(platform, platformId) {
   const customer = await findCustomer(platform, platformId);
-  if (!customer || !customer.total_hires) return; // new customer — nothing to prefill
+  if (!customer) return;
 
   const { booking } = await loadState(platform, platformId);
   if (!booking) return;
@@ -451,7 +451,8 @@ async function prefillFromCustomerProfile(platform, platformId) {
   const updates = {};
 
   // Prefill fields we already know about them
-  if (customer.name && !booking.name) updates.name = customer.name;
+  const customerName = customer.name || customer.full_name || "";
+  if (customerName && !booking.name) updates.name = customerName;
   if (customer.phone && !booking.phone) updates.phone = customer.phone;
   if (customer.email && !booking.email) updates.email = customer.email;
   if (customer.address && !booking.address) updates.address = customer.address;
@@ -493,11 +494,28 @@ async function ensureBooking(platform, platformId, customer) {
   if (existing) return existing;
 
   const now = new Date().toISOString();
+  const frontLicenceUrl =
+    customer?.licence_photo_front_url || customer?.license_photo_front_url || "";
+  const backLicenceUrl =
+    customer?.licence_photo_back_url || customer?.license_photo_back_url || "";
+
   return Booking.create({
     booking_id: `HHC-${Date.now()}`,
     customer_id: customer?.customer_id || "",
     platform,
     platform_id: platformId,
+    name: customer?.name || customer?.full_name || "",
+    phone: customer?.phone || "",
+    email: customer?.email || "",
+    address: customer?.address || "",
+    country_of_origin: customer?.country_of_origin || "",
+    next_of_kin: customer?.next_of_kin || "",
+    next_of_kin_phone: customer?.next_of_kin_phone || "",
+    licence_type: customer?.licence_type || "",
+    licence_photo_front_url: frontLicenceUrl,
+    licence_photo_back_url: backLicenceUrl,
+    license_photo_front_url: frontLicenceUrl,
+    license_photo_back_url: backLicenceUrl,
     status: "PENDING",
     payment_status: "PENDING",
     created_at: now,

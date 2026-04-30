@@ -36,6 +36,51 @@ function normalizeBookingPhotoFields(booking, customer = null) {
   };
 }
 
+function customerLookupKeys(booking) {
+  return [
+    booking.customer_id ? `id:${booking.customer_id}` : '',
+    booking.platform && booking.platform_id
+      ? `platform:${booking.platform}:${booking.platform_id}`
+      : '',
+  ].filter(Boolean);
+}
+
+async function hydrateBookingCustomers(bookings) {
+  const customerIds = [
+    ...new Set(bookings.map((booking) => booking.customer_id).filter(Boolean)),
+  ];
+  const platformPairs = bookings
+    .filter((booking) => booking.platform && booking.platform_id)
+    .map((booking) => ({
+      platform: booking.platform,
+      platform_id: booking.platform_id,
+    }));
+
+  if (!customerIds.length && !platformPairs.length) return new Map();
+
+  const customers = await Customer.find({
+    $or: [
+      ...customerIds.map((customer_id) => ({ customer_id })),
+      ...platformPairs,
+    ],
+  }).lean();
+
+  const customerMap = new Map();
+  for (const customer of customers) {
+    if (customer.customer_id) {
+      customerMap.set(`id:${customer.customer_id}`, customer);
+    }
+    if (customer.platform && customer.platform_id) {
+      customerMap.set(
+        `platform:${customer.platform}:${customer.platform_id}`,
+        customer,
+      );
+    }
+  }
+
+  return customerMap;
+}
+
 // GET /api/bookings - Get all bookings
 router.get('/', async (req, res) => {
   try {
@@ -95,10 +140,16 @@ router.get('/', async (req, res) => {
       .lean();
     
     const total = await Booking.countDocuments(filter);
+    const customerMap = await hydrateBookingCustomers(bookings);
     
     res.json({
       success: true,
-      data: bookings.map(normalizeBookingPhotoFields),
+      data: bookings.map((booking) => {
+        const customer = customerLookupKeys(booking)
+          .map((key) => customerMap.get(key))
+          .find(Boolean);
+        return normalizeBookingPhotoFields(booking, customer);
+      }),
       pagination: { 
         page: pageNum, 
         limit: limitNum, 
