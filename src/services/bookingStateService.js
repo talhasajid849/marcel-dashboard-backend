@@ -681,6 +681,19 @@ function datesOverlap(startA, endA, startB, endB) {
   return aStart < bEndWithBuffer && bStart < aEndWithBuffer;
 }
 
+function activeHoldHasNotExpired(booking, now = new Date()) {
+  if (booking.status !== "HELD_AWAITING_PAYMENT") return false;
+  if (!booking.hold_expires_at) return true;
+
+  const expiresAt = new Date(booking.hold_expires_at);
+  return Number.isNaN(expiresAt.getTime()) || expiresAt > now;
+}
+
+function bookingBlocksDates(booking, now = new Date()) {
+  if (booking.status === "CONFIRMED") return true;
+  return activeHoldHasNotExpired(booking, now);
+}
+
 async function releaseExpiredHoldIfNeeded(scooter, now = new Date()) {
   if (scooter.status !== "HELD" || !scooter.hold_expires_at) return scooter;
 
@@ -707,42 +720,41 @@ async function scooterHasDateConflict(
     end_date: { $exists: true, $nin: [null, ""] },
   }).lean();
 
-  return candidates.some((booking) =>
-    datesOverlap(startDate, endDate, booking.start_date, booking.end_date),
+  const now = new Date();
+  return candidates.some(
+    (booking) =>
+      bookingBlocksDates(booking, now) &&
+      datesOverlap(startDate, endDate, booking.start_date, booking.end_date),
   );
 }
 
 async function assignScooterHold(booking, state, holdExpiresAt) {
   if (booking.scooter_plate) {
-    const hasConflict = await scooterHasDateConflict(
-      booking.scooter_plate,
-      state.startDate,
-      state.endDate,
-      booking.booking_id,
-    );
+    const scooter = await Fleet.findOne({
+      scooter_plate: booking.scooter_plate,
+    });
 
-    if (!hasConflict) {
-      const scooter = await Fleet.findOne({
-        scooter_plate: booking.scooter_plate,
-      });
-      if (scooter) {
-        scooter.markHeld(
-          booking.booking_id,
-          state.startDate,
-          state.endDate,
-          holdExpiresAt,
-        );
-        await scooter.save();
+    if (!scooter || ["MAINTENANCE", "RETIRED"].includes(scooter.status)) {
+      booking.scooter_plate = "";
+    } else {
+      const hasConflict = await scooterHasDateConflict(
+        booking.scooter_plate,
+        state.startDate,
+        state.endDate,
+        booking.booking_id,
+      );
+
+      if (!hasConflict) {
+        return { ok: true, scooterPlate: booking.scooter_plate };
       }
-      return { ok: true, scooterPlate: booking.scooter_plate };
-    }
 
-    booking.scooter_plate = "";
+      booking.scooter_plate = "";
+    }
   }
 
   const scooters = await Fleet.find({
     scooter_type: state.scooterType,
-    status: { $in: ["AVAILABLE", "HELD"] },
+    status: { $nin: ["MAINTENANCE", "RETIRED"] },
   }).sort({ scooter_plate: 1 });
 
   for (const scooter of scooters) {
@@ -762,13 +774,6 @@ async function assignScooterHold(booking, state, holdExpiresAt) {
     if (hasConflict) continue;
 
     booking.scooter_plate = scooter.scooter_plate;
-    scooter.markHeld(
-      booking.booking_id,
-      state.startDate,
-      state.endDate,
-      holdExpiresAt,
-    );
-    await scooter.save();
     return { ok: true, scooterPlate: scooter.scooter_plate };
   }
 
@@ -854,7 +859,6 @@ async function finalizeBookingIfReady(platform, platformId) {
 
   const now = new Date().toISOString();
   const holdExpiresAt = addHours(new Date(), HOLD_DURATION_HOURS).toISOString();
-  const scooterHold = await assignScooterHold(booking, state, holdExpiresAt);
 
   // Enforce minimum 1 week hire
   if (state.startDate && state.endDate) {
@@ -873,6 +877,8 @@ async function finalizeBookingIfReady(platform, platformId) {
       };
     }
   }
+
+  const scooterHold = await assignScooterHold(booking, state, holdExpiresAt);
 
   if (!scooterHold.ok) {
     booking.status = "PENDING";

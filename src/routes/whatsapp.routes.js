@@ -257,6 +257,13 @@ router.get('/stats', async (req, res) => {
         uniqueChats: uniqueChats.length,
         incomingMessages,
         outgoingMessages,
+        responseRate:
+          incomingMessages > 0
+            ? Math.min(
+                100,
+                Math.round((outgoingMessages / incomingMessages) * 100),
+              )
+            : 0,
       },
     });
   } catch (error) {

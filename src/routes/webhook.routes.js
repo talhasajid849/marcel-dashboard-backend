@@ -21,6 +21,21 @@ const stripeService = require("../services/stripeService");
 
 // ── POST /api/webhook/stripe ─────────────────────────────────────────────────
 
+function isDateInRange(date, startDate, endDate) {
+  const day = new Date(date);
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if ([day, start, end].some((value) => Number.isNaN(value.getTime()))) {
+    return false;
+  }
+
+  day.setHours(0, 0, 0, 0);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return day >= start && day <= end;
+}
+
 function verifyStripeSignature(req) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -170,16 +185,21 @@ async function handleCheckoutCompleted(session) {
 
   console.log("✅ Booking confirmed:", bookingId);
 
-  // 2. Mark scooter as BOOKED
+  // 2. Future bookings are reserved by date-overlap checks. Only mark the
+  // scooter globally booked if the hire is active today.
   if (booking.scooter_plate) {
+    const activeToday = isDateInRange(now, booking.start_date, booking.end_date);
     await Fleet.findOneAndUpdate(
-      { scooter_plate: booking.scooter_plate },
+      {
+        scooter_plate: booking.scooter_plate,
+        status: { $nin: ["MAINTENANCE", "RETIRED"] },
+      },
       {
         $set: {
-          status: "BOOKED",
-          booking_id: booking.booking_id,
-          booked_from: booking.start_date,
-          booked_to: booking.end_date,
+          status: activeToday ? "BOOKED" : "AVAILABLE",
+          booking_id: activeToday ? booking.booking_id : "",
+          booked_from: activeToday ? booking.start_date : "",
+          booked_to: activeToday ? booking.end_date : "",
           hold_expires_at: "",
           updated_at: now,
         },

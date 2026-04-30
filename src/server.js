@@ -16,6 +16,7 @@ const hiresRoutes = require('./routes/hires.routes');
 const subscriptionsRoutes = require('./routes/subscriptions.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const metaRoutes = require('./routes/meta.routes');
+const paymentRoutes = require('./routes/payment.routes');
 
 const app = express();
 
@@ -76,7 +77,10 @@ app.get('/health', (req, res) => {
 function redirectToFrontend(path) {
   return (req, res) => {
     const frontendUrl = (process.env.FRONTEND_URL || process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
-    res.redirect(302, `${frontendUrl}${path}`);
+    const query = req.originalUrl.includes('?')
+      ? req.originalUrl.slice(req.originalUrl.indexOf('?'))
+      : '';
+    res.redirect(302, `${frontendUrl}${path}${query}`);
   };
 }
 
@@ -86,6 +90,7 @@ app.get('/payment-cancel', redirectToFrontend('/payment-cancel'));
 // Auth routes (public - no auth required)
 app.use('/api/auth', authRoutes);
 app.use('/api/meta', metaRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // Protected API Routes (require authentication)
 app.use('/api/bookings', authMiddleware, bookingsRoutes);

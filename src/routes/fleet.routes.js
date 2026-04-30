@@ -1,6 +1,130 @@
 const express = require('express');
 const router = express.Router();
 const Fleet = require('../models/Fleet');
+const Booking = require('../models/Booking');
+
+function startOfDay(date) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function addDays(date, days) {
+  const value = startOfDay(date);
+  value.setDate(value.getDate() + days);
+  return value;
+}
+
+function dateRangeContains(date, startDate, endDate) {
+  const day = startOfDay(date);
+  const start = startOfDay(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  if ([day, start, end].some((value) => Number.isNaN(value.getTime()))) {
+    return false;
+  }
+
+  return day >= start && day <= end;
+}
+
+function holdIsActive(booking, now = new Date()) {
+  if (booking.status !== 'HELD_AWAITING_PAYMENT') return false;
+  if (!booking.hold_expires_at) return true;
+
+  const expiresAt = new Date(booking.hold_expires_at);
+  return Number.isNaN(expiresAt.getTime()) || expiresAt > now;
+}
+
+function deriveFleetStatus(scooter, bookings, now = new Date()) {
+  if (['MAINTENANCE', 'RETIRED'].includes(scooter.status)) {
+    return {
+      ...scooter,
+      display_status: scooter.status,
+    };
+  }
+
+  const activeBooking = bookings.find(
+    (booking) =>
+      booking.status === 'CONFIRMED' &&
+      dateRangeContains(now, booking.start_date, booking.end_date)
+  );
+
+  if (activeBooking) {
+    return {
+      ...scooter,
+      status: 'BOOKED',
+      display_status: 'BOOKED',
+      booking_id: activeBooking.booking_id,
+      booked_from: activeBooking.start_date,
+      booked_to: activeBooking.end_date,
+      next_booking: activeBooking,
+    };
+  }
+
+  const tomorrow = addDays(now, 1);
+  const nearHold = bookings.find(
+    (booking) =>
+      holdIsActive(booking, now) &&
+      dateRangeContains(tomorrow, booking.start_date, booking.end_date)
+  );
+
+  if (nearHold) {
+    return {
+      ...scooter,
+      status: 'HELD',
+      display_status: 'HELD',
+      booking_id: nearHold.booking_id,
+      booked_from: nearHold.start_date,
+      booked_to: nearHold.end_date,
+      hold_expires_at: nearHold.hold_expires_at,
+      next_booking: nearHold,
+    };
+  }
+
+  const upcomingBooking = bookings.find(
+    (booking) =>
+      ['CONFIRMED', 'HELD_AWAITING_PAYMENT'].includes(booking.status) &&
+      new Date(booking.start_date) > startOfDay(now)
+  );
+
+  return {
+    ...scooter,
+    status: 'AVAILABLE',
+    display_status: 'AVAILABLE',
+    booking_id: '',
+    booked_from: '',
+    booked_to: '',
+    hold_expires_at: '',
+    next_booking: upcomingBooking || null,
+  };
+}
+
+async function hydrateFleetStatuses(scooters) {
+  const plates = scooters.map((scooter) => scooter.scooter_plate).filter(Boolean);
+  if (!plates.length) return scooters;
+
+  const bookings = await Booking.find({
+    scooter_plate: { $in: plates },
+    status: { $in: ['HELD_AWAITING_PAYMENT', 'CONFIRMED'] },
+    payment_status: { $ne: 'EXPIRED' },
+    start_date: { $exists: true, $nin: [null, ''] },
+    end_date: { $exists: true, $nin: [null, ''] },
+  }).sort({ start_date: 1 }).lean();
+
+  const bookingsByPlate = new Map();
+  for (const booking of bookings) {
+    if (!bookingsByPlate.has(booking.scooter_plate)) {
+      bookingsByPlate.set(booking.scooter_plate, []);
+    }
+    bookingsByPlate.get(booking.scooter_plate).push(booking);
+  }
+
+  const now = new Date();
+  return scooters.map((scooter) =>
+    deriveFleetStatus(scooter, bookingsByPlate.get(scooter.scooter_plate) || [], now)
+  );
+}
 
 // GET /api/fleet - Get all scooters
 router.get('/', async (req, res) => {
@@ -9,26 +133,25 @@ router.get('/', async (req, res) => {
     
     let filter = {};
     
-    if (status) {
-      filter.status = status;
-    }
-    
     if (scooter_type) {
       filter.scooter_type = scooter_type;
-    }
-
-    if (available_only === 'true') {
-      filter.status = 'AVAILABLE';
     }
     
     const scooters = await Fleet.find(filter)
       .sort({ scooter_plate: 1 })
       .lean();
+
+    const hydratedScooters = await hydrateFleetStatuses(scooters);
+    const filteredScooters = hydratedScooters.filter((scooter) => {
+      if (status && scooter.status !== status) return false;
+      if (available_only === 'true' && scooter.status !== 'AVAILABLE') return false;
+      return true;
+    });
     
     res.json({
       success: true,
-      data: scooters,
-      count: scooters.length
+      data: filteredScooters,
+      count: filteredScooters.length
     });
   } catch (error) {
     console.error('GET /api/fleet error:', error);
@@ -39,22 +162,30 @@ router.get('/', async (req, res) => {
 // GET /api/fleet/stats - Get fleet statistics
 router.get('/stats', async (req, res) => {
   try {
-    const total = await Fleet.countDocuments();
-    const available = await Fleet.countDocuments({ status: 'AVAILABLE' });
-    const booked = await Fleet.countDocuments({ status: 'BOOKED' });
-    const held = await Fleet.countDocuments({ status: 'HELD' });
-    const maintenance = await Fleet.countDocuments({ status: 'MAINTENANCE' });
+    const allScooters = await Fleet.find({}).lean();
+    const hydratedScooters = await hydrateFleetStatuses(allScooters);
+    const total = hydratedScooters.length;
+    const available = hydratedScooters.filter((s) => s.status === 'AVAILABLE').length;
+    const booked = hydratedScooters.filter((s) => s.status === 'BOOKED').length;
+    const held = hydratedScooters.filter((s) => s.status === 'HELD').length;
+    const maintenance = hydratedScooters.filter((s) => s.status === 'MAINTENANCE').length;
 
-    const by_type = await Fleet.aggregate([
-      {
-        $group: {
-          _id: '$scooter_type',
-          count: { $sum: 1 },
-          available: { $sum: { $cond: [{ $eq: ['$status', 'AVAILABLE'] }, 1, 0] } },
-          booked: { $sum: { $cond: [{ $eq: ['$status', 'BOOKED'] }, 1, 0] } }
-        }
+    const byTypeMap = new Map();
+    for (const scooter of hydratedScooters) {
+      if (!byTypeMap.has(scooter.scooter_type)) {
+        byTypeMap.set(scooter.scooter_type, {
+          _id: scooter.scooter_type,
+          count: 0,
+          available: 0,
+          booked: 0,
+        });
       }
-    ]);
+      const row = byTypeMap.get(scooter.scooter_type);
+      row.count += 1;
+      if (scooter.status === 'AVAILABLE') row.available += 1;
+      if (scooter.status === 'BOOKED') row.booked += 1;
+    }
+    const by_type = [...byTypeMap.values()];
 
     const utilization = await Fleet.aggregate([
       {
@@ -95,7 +226,8 @@ router.get('/:plate', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Scooter not found' });
     }
     
-    res.json({ success: true, data: scooter });
+    const [hydratedScooter] = await hydrateFleetStatuses([scooter]);
+    res.json({ success: true, data: hydratedScooter });
   } catch (error) {
     console.error(`GET /api/fleet/${req.params.plate} error:`, error);
     res.status(500).json({ success: false, error: error.message });

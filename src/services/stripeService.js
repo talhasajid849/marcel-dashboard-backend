@@ -118,8 +118,8 @@ class StripeService {
         'metadata[start_date]':     booking.start_date || '',
         'metadata[end_date]':       booking.end_date   || '',
         expires_at: expiresAt,
-        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success`,
-        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel`,
+        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel?session_id={CHECKOUT_SESSION_ID}`,
       });
 
       if (!session?.url) {
@@ -235,8 +235,8 @@ class StripeService {
         'metadata[subscription_id]': subscription.subscription_id,
         'metadata[booking_id]': subscription.booking_id,
         'metadata[week_number]': weekNumber,
-        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success`,
-        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel`,
+        success_url: `${this.getCheckoutRedirectBaseUrl()}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url:  `${this.getCheckoutRedirectBaseUrl()}/payment-cancel?session_id={CHECKOUT_SESSION_ID}`,
       });
 
       if (!session?.url) return null;
