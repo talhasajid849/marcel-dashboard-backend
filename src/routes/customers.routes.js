@@ -2,6 +2,168 @@ const express = require('express');
 const router = express.Router();
 const Customer = require('../models/Customer');
 const Booking = require('../models/Booking');
+const Subscription = require('../models/Subscription');
+const Hire = require('../models/Hire');
+const Message = require('../models/Message');
+const Fleet = require('../models/Fleet');
+const stripeService = require('../services/stripeService');
+
+const EDITABLE_CUSTOMER_FIELDS = [
+  'platform',
+  'platform_id',
+  'name',
+  'full_name',
+  'phone',
+  'email',
+  'address',
+  'country_of_origin',
+  'next_of_kin',
+  'next_of_kin_phone',
+  'licence_type',
+  'licence_photo_front_url',
+  'licence_photo_back_url',
+  'license_photo_front_url',
+  'license_photo_back_url',
+  'customer_status',
+  'notes',
+  'tags',
+];
+
+function pickEditableCustomerFields(source) {
+  return EDITABLE_CUSTOMER_FIELDS.reduce((acc, field) => {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      acc[field] = source[field];
+    }
+    return acc;
+  }, {});
+}
+
+async function cancelCustomerRelatedData(customer, permanent = false) {
+  const now = new Date().toISOString();
+  const bookingFilter = {
+    $or: [
+      { customer_id: customer.customer_id },
+      { platform: customer.platform, platform_id: customer.platform_id },
+      { phone: customer.phone },
+      { email: customer.email },
+    ].filter((condition) => Object.values(condition).every(Boolean)),
+  };
+
+  const bookings = await Booking.find(bookingFilter);
+  const bookingIds = bookings.map((booking) => booking.booking_id);
+  const subscriptions = await Subscription.find({
+    $or: [
+      { customer_id: customer.customer_id },
+      { booking_id: { $in: bookingIds } },
+      { customer_phone: customer.phone },
+      { customer_email: customer.email },
+    ].filter((condition) => {
+      const value = Object.values(condition)[0];
+      return Array.isArray(value?.$in) ? value.$in.length : Boolean(value);
+    }),
+  });
+
+  for (const subscription of subscriptions) {
+    if (
+      subscription.stripe_subscription_id &&
+      !['CANCELLED', 'COMPLETED'].includes(subscription.status)
+    ) {
+      await stripeService.cancelSubscription(subscription.stripe_subscription_id);
+    }
+  }
+
+  if (permanent) {
+    await Promise.all([
+      Fleet.updateMany(
+        { booking_id: { $in: bookingIds }, status: { $nin: ['MAINTENANCE', 'RETIRED'] } },
+        {
+          $set: {
+            status: 'AVAILABLE',
+            booking_id: '',
+            booked_from: '',
+            booked_to: '',
+            hold_expires_at: '',
+            updated_at: now,
+          },
+        },
+      ),
+      Booking.deleteMany(bookingFilter),
+      Subscription.deleteMany({ _id: { $in: subscriptions.map((sub) => sub._id) } }),
+      Hire.deleteMany({
+        $or: [
+          { booking_id: { $in: bookingIds } },
+          { hirer_whatsapp_id: customer.platform_id },
+          { hirer_phone: customer.phone },
+          { hirer_email: customer.email },
+        ].filter((condition) => Object.values(condition).every(Boolean)),
+      }),
+      Message.deleteMany({
+        $or: [
+          { customer_id: customer.customer_id },
+          { platform_id: customer.platform_id },
+          { customer_phone: customer.phone },
+          { customer_name: customer.name },
+          { booking_id: { $in: bookingIds } },
+        ].filter((condition) => {
+          const value = Object.values(condition)[0];
+          return Array.isArray(value?.$in) ? value.$in.length : Boolean(value);
+        }),
+      }),
+    ]);
+  } else {
+    await Promise.all([
+      Fleet.updateMany(
+        { booking_id: { $in: bookingIds }, status: { $nin: ['MAINTENANCE', 'RETIRED'] } },
+        {
+          $set: {
+            status: 'AVAILABLE',
+            booking_id: '',
+            booked_from: '',
+            booked_to: '',
+            hold_expires_at: '',
+            updated_at: now,
+          },
+        },
+      ),
+      Booking.updateMany(bookingFilter, {
+        $set: {
+          status: 'CANCELLED',
+          released_at: now,
+          updated_at: now,
+          notes: 'Cancelled because customer was deleted',
+        },
+      }),
+      Subscription.updateMany(
+        { _id: { $in: subscriptions.map((sub) => sub._id) } },
+        {
+          $set: {
+            status: 'CANCELLED',
+            billing_status: 'CANCELLED',
+            cancelled_at: now,
+            billing_failure_reason: 'Customer deleted',
+            updated_at: now,
+          },
+        },
+      ),
+      Hire.updateMany(
+        {
+          $or: [
+            { booking_id: { $in: bookingIds } },
+            { hirer_whatsapp_id: customer.platform_id },
+            { hirer_phone: customer.phone },
+            { hirer_email: customer.email },
+          ].filter((condition) => Object.values(condition).every(Boolean)),
+        },
+        { $set: { status: 'CANCELLED', updated_at: now } },
+      ),
+    ]);
+  }
+
+  return {
+    bookings: bookingIds.length,
+    subscriptions: subscriptions.length,
+  };
+}
 
 function deriveCustomerTier(customer) {
   const successful = Number(customer?.successful_bookings || 0);
@@ -173,11 +335,18 @@ router.get('/:id', async (req, res) => {
 // POST /api/customers - Create new customer
 router.post('/', async (req, res) => {
   try {
+    const data = pickEditableCustomerFields(req.body || {});
     const now = new Date().toISOString();
-    req.body.created_at = now;
-    req.body.updated_at = now;
+    data.customer_id = req.body.customer_id || `CUS-${Date.now()}`;
+    data.platform_id =
+      data.platform_id ||
+      (data.phone ? `${data.phone.replace(/\D/g, '')}@manual` : `manual-${Date.now()}`);
+    data.platform = data.platform || '';
+    data.customer_status = data.customer_status || 'ACTIVE';
+    data.created_at = now;
+    data.updated_at = now;
     
-    const customer = new Customer(req.body);
+    const customer = new Customer(data);
     await customer.save();
     
     res.status(201).json({ success: true, data: customer, message: 'Customer created successfully' });
@@ -196,11 +365,8 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
-
-    delete updates.customer_id;
+    const updates = pickEditableCustomerFields(req.body || {});
     delete updates.platform_id;
-    delete updates.created_at;
 
     updates.updated_at = new Date().toISOString();
 
@@ -233,9 +399,15 @@ router.delete('/:id', async (req, res) => {
       if (!customer) {
         return res.status(404).json({ success: false, error: 'Customer not found' });
       }
+      const related = await cancelCustomerRelatedData(customer, true);
 
-      res.json({ success: true, message: 'Customer permanently deleted', data: customer });
+      res.json({ success: true, message: 'Customer and related data permanently deleted', data: customer, related });
     } else {
+      const existing = await Customer.findOne({ customer_id: id });
+      if (!existing) {
+        return res.status(404).json({ success: false, error: 'Customer not found' });
+      }
+      const related = await cancelCustomerRelatedData(existing, false);
       const customer = await Customer.findOneAndUpdate(
         { customer_id: id },
         { $set: { customer_status: 'INACTIVE', updated_at: new Date().toISOString() } },
@@ -246,7 +418,7 @@ router.delete('/:id', async (req, res) => {
         return res.status(404).json({ success: false, error: 'Customer not found' });
       }
 
-      res.json({ success: true, message: 'Customer marked as inactive', data: customer });
+      res.json({ success: true, message: 'Customer marked inactive and related records cancelled', data: customer, related });
     }
   } catch (error) {
     console.error(`DELETE /api/customers/${req.params.id} error:`, error);

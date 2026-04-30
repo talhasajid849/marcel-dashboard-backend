@@ -58,13 +58,52 @@ async function hydrateSubscriptions(subscriptions) {
 
   const bookingMap = new Map(bookings.map((booking) => [booking.booking_id, booking]));
   const customerMap = new Map(customers.map((customer) => [customer.customer_id, customer]));
+  const cancelledBookingIds = bookings
+    .filter((booking) => booking.status === 'CANCELLED')
+    .map((booking) => booking.booking_id);
+
+  if (cancelledBookingIds.length) {
+    await Subscription.updateMany(
+      { booking_id: { $in: cancelledBookingIds }, status: { $nin: ['CANCELLED', 'COMPLETED'] } },
+      {
+        $set: {
+          status: 'CANCELLED',
+          billing_status: 'CANCELLED',
+          cancelled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      },
+    );
+  }
 
   return plainSubscriptions.map((sub) =>
     applyCustomerFallback(
-      sub,
+      bookingMap.get(sub.booking_id)?.status === 'CANCELLED'
+        ? { ...sub, status: 'CANCELLED', billing_status: 'CANCELLED' }
+        : sub,
       bookingMap.get(sub.booking_id),
       customerMap.get(sub.customer_id),
     ),
+  );
+}
+
+async function reconcileCancelledBookingSubscriptions() {
+  const cancelledBookings = await Booking.find({ status: 'CANCELLED' })
+    .select('booking_id')
+    .lean();
+  const bookingIds = cancelledBookings.map((booking) => booking.booking_id);
+  if (!bookingIds.length) return;
+
+  await Subscription.updateMany(
+    { booking_id: { $in: bookingIds }, status: { $nin: ['CANCELLED', 'COMPLETED'] } },
+    {
+      $set: {
+        status: 'CANCELLED',
+        billing_status: 'CANCELLED',
+        cancelled_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    },
   );
 }
 
@@ -73,6 +112,8 @@ async function hydrateSubscriptions(subscriptions) {
  */
 router.get('/', async (req, res) => {
   try {
+    await reconcileCancelledBookingSubscriptions();
+
     const {
       status,
       customer_id,
@@ -117,6 +158,8 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
+    await reconcileCancelledBookingSubscriptions();
+
     const [
       totalSubscriptions,
       activeSubscriptions,

@@ -3,7 +3,10 @@ const router = express.Router();
 const Booking = require('../models/Booking');
 const Customer = require('../models/Customer');
 const Fleet = require('../models/Fleet');
+const Subscription = require('../models/Subscription');
+const Hire = require('../models/Hire');
 const emailService = require('../services/emailService');
+const stripeService = require('../services/stripeService');
 
 const EDITABLE_BOOKING_FIELDS = [
   'customer_id',
@@ -176,6 +179,37 @@ async function syncFleetForBooking(booking, oldScooterPlate = '') {
         booked_to: blocksFleetNow ? booking.end_date : '',
         hold_expires_at: '',
         updated_at: new Date().toISOString(),
+      },
+    },
+  );
+}
+
+async function cancelOperationalRecordsForBooking(booking, reason = 'Booking cancelled') {
+  const now = new Date().toISOString();
+  const subscriptions = await Subscription.find({ booking_id: booking.booking_id });
+
+  for (const subscription of subscriptions) {
+    if (
+      subscription.stripe_subscription_id &&
+      !['CANCELLED', 'COMPLETED'].includes(subscription.status)
+    ) {
+      await stripeService.cancelSubscription(subscription.stripe_subscription_id);
+    }
+
+    subscription.status = 'CANCELLED';
+    subscription.billing_status = 'CANCELLED';
+    subscription.cancelled_at = now;
+    subscription.billing_failure_reason = reason;
+    subscription.updated_at = now;
+    await subscription.save();
+  }
+
+  await Hire.updateMany(
+    { booking_id: booking.booking_id, status: { $ne: 'COMPLETED' } },
+    {
+      $set: {
+        status: 'CANCELLED',
+        updated_at: now,
       },
     },
   );
@@ -465,6 +499,9 @@ router.post('/', async (req, res) => {
     const booking = new Booking(data);
     await booking.save();
     await syncFleetForBooking(booking);
+    if (status === 'CANCELLED') {
+      await cancelOperationalRecordsForBooking(booking, notes || 'Booking cancelled via dashboard');
+    }
 
     // 📧 Send pending booking email
     if (booking.email) {
@@ -520,6 +557,9 @@ router.patch('/:id', async (req, res) => {
     );
 
     await syncFleetForBooking(booking, existing.scooter_plate);
+    if (booking.status === 'CANCELLED') {
+      await cancelOperationalRecordsForBooking(booking, booking.notes || 'Booking cancelled via dashboard');
+    }
 
     res.json({ success: true, data: normalizeBookingPhotoFields(booking.toObject()), message: 'Booking updated successfully' });
   } catch (error) {
@@ -582,6 +622,7 @@ router.patch('/:id/status', async (req, res) => {
     }
 
     await syncFleetForBooking(booking);
+    await cancelOperationalRecordsForBooking(booking, reason || 'Booking cancelled via dashboard');
 
     // 📧 Send appropriate email based on status
     if (booking.email) {
@@ -664,6 +705,7 @@ router.delete('/:id', async (req, res) => {
       }
 
       await syncFleetForBooking({ ...booking.toObject(), status: 'CANCELLED' }, booking.scooter_plate);
+      await cancelOperationalRecordsForBooking(booking, 'Booking permanently deleted');
 
       res.json({ success: true, message: 'Booking permanently deleted', data: normalizeBookingPhotoFields(booking.toObject()) });
     } else {
@@ -685,6 +727,7 @@ router.delete('/:id', async (req, res) => {
       }
 
       await syncFleetForBooking(booking);
+      await cancelOperationalRecordsForBooking(booking, 'Booking deleted via dashboard');
 
       res.json({ success: true, message: 'Booking cancelled (soft delete)', data: normalizeBookingPhotoFields(booking.toObject()) });
     }
