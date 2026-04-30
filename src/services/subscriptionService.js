@@ -6,7 +6,20 @@
 const Subscription = require('../models/Subscription');
 const Hire = require('../models/Hire');
 const Booking = require('../models/Booking');
+const Customer = require('../models/Customer');
 const stripeService = require('./stripeService');
+
+function resolveCustomerName(booking, customer) {
+  return booking?.name || customer?.name || customer?.full_name || '';
+}
+
+function resolveCustomerPhone(booking, customer) {
+  return booking?.phone || customer?.phone || '';
+}
+
+function resolveCustomerEmail(booking, customer) {
+  return booking?.email || customer?.email || '';
+}
 
 class SubscriptionService {
   /**
@@ -16,7 +29,26 @@ class SubscriptionService {
     try {
       // Check if subscription already exists
       const existing = await Subscription.findOne({ booking_id: booking.booking_id });
+      const customer = booking.customer_id
+        ? await Customer.findOne({ customer_id: booking.customer_id })
+        : await Customer.findOne({
+            platform: booking.platform,
+            platform_id: booking.platform_id,
+          });
       if (existing) {
+        existing.customer_name =
+          existing.customer_name || resolveCustomerName(booking, customer);
+        existing.customer_phone =
+          existing.customer_phone || resolveCustomerPhone(booking, customer);
+        existing.customer_email =
+          existing.customer_email || resolveCustomerEmail(booking, customer);
+        existing.customer_whatsapp_id =
+          existing.customer_whatsapp_id ||
+          booking.platform_id ||
+          customer?.platform_id ||
+          '';
+        existing.updated_at = new Date().toISOString();
+        await existing.save();
         console.log('ℹ️  Subscription already exists:', existing.subscription_id);
         return existing;
       }
@@ -49,10 +81,10 @@ class SubscriptionService {
         scooter_plate: booking.scooter_plate || 'UNASSIGNED',
         scooter_type: booking.scooter_type,
 
-        customer_name: booking.name,
-        customer_phone: booking.phone,
+        customer_name: resolveCustomerName(booking, customer),
+        customer_phone: resolveCustomerPhone(booking, customer),
         customer_whatsapp_id: booking.platform_id,
-        customer_email: booking.email,
+        customer_email: resolveCustomerEmail(booking, customer),
 
         weekly_rate: weeklyRate,
         deposit_amount: depositAmount,

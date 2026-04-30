@@ -5,12 +5,68 @@
 const express = require('express');
 const router = express.Router();
 const Subscription = require('../models/Subscription');
+const Booking = require('../models/Booking');
+const Customer = require('../models/Customer');
 const subscriptionService = require('../services/subscriptionService');
 const stripeService = require('../services/stripeService');
 const authMiddleware = require('../middleware/auth.middleware');
 
 // Apply auth middleware to all routes
 router.use(authMiddleware);
+
+function applyCustomerFallback(subscription, booking = null, customer = null) {
+  if (!subscription) return subscription;
+
+  const data = subscription.toObject ? subscription.toObject() : subscription;
+  return {
+    ...data,
+    customer_name:
+      data.customer_name ||
+      booking?.name ||
+      customer?.name ||
+      customer?.full_name ||
+      '',
+    customer_phone: data.customer_phone || booking?.phone || customer?.phone || '',
+    customer_email: data.customer_email || booking?.email || customer?.email || '',
+    customer_whatsapp_id:
+      data.customer_whatsapp_id ||
+      booking?.platform_id ||
+      customer?.platform_id ||
+      '',
+  };
+}
+
+async function hydrateSubscriptions(subscriptions) {
+  const plainSubscriptions = subscriptions.map((sub) =>
+    sub.toObject ? sub.toObject() : sub,
+  );
+  const bookingIds = [
+    ...new Set(plainSubscriptions.map((sub) => sub.booking_id).filter(Boolean)),
+  ];
+  const customerIds = [
+    ...new Set(plainSubscriptions.map((sub) => sub.customer_id).filter(Boolean)),
+  ];
+
+  const [bookings, customers] = await Promise.all([
+    bookingIds.length
+      ? Booking.find({ booking_id: { $in: bookingIds } }).lean()
+      : [],
+    customerIds.length
+      ? Customer.find({ customer_id: { $in: customerIds } }).lean()
+      : [],
+  ]);
+
+  const bookingMap = new Map(bookings.map((booking) => [booking.booking_id, booking]));
+  const customerMap = new Map(customers.map((customer) => [customer.customer_id, customer]));
+
+  return plainSubscriptions.map((sub) =>
+    applyCustomerFallback(
+      sub,
+      bookingMap.get(sub.booking_id),
+      customerMap.get(sub.customer_id),
+    ),
+  );
+}
 
 /**
  * GET /api/subscriptions - List all subscriptions
@@ -38,9 +94,11 @@ router.get('/', async (req, res) => {
       Subscription.countDocuments(filter),
     ]);
 
+    const hydratedSubscriptions = await hydrateSubscriptions(subscriptions);
+
     res.json({
       success: true,
-      data: subscriptions,
+      data: hydratedSubscriptions,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -112,7 +170,17 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Subscription not found' });
     }
 
-    res.json({ success: true, data: subscription });
+    const [booking, customer] = await Promise.all([
+      Booking.findOne({ booking_id: subscription.booking_id }).lean(),
+      subscription.customer_id
+        ? Customer.findOne({ customer_id: subscription.customer_id }).lean()
+        : null,
+    ]);
+
+    res.json({
+      success: true,
+      data: applyCustomerFallback(subscription, booking, customer),
+    });
   } catch (error) {
     console.error('❌ Get subscription error:', error.message);
     res.status(500).json({ success: false, error: error.message });
