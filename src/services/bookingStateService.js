@@ -57,6 +57,17 @@ function valueOf(booking, customer, field) {
   );
 }
 
+function hasStreetNumber(value) {
+  return /\b\d+[a-zA-Z]?(?:\s*\/\s*\d+[a-zA-Z]?)?\b/.test(
+    String(value || ""),
+  );
+}
+
+function completeAddress(value) {
+  const address = String(value || "").trim();
+  return address && hasStreetNumber(address) ? address : "";
+}
+
 function toState(booking, customer) {
   const licencePhotoFrontUrl = valueOf(
     booking,
@@ -73,7 +84,7 @@ function toState(booking, customer) {
     endDate: valueOf(booking, customer, "endDate"),
     pickupOrDelivery: valueOf(booking, customer, "pickupOrDelivery"),
     countryOfOrigin: valueOf(booking, customer, "countryOfOrigin"),
-    address: valueOf(booking, customer, "address"),
+    address: completeAddress(valueOf(booking, customer, "address")),
     name: valueOf(booking, customer, "name"),
     phone: valueOf(booking, customer, "phone"),
     email: valueOf(booking, customer, "email"),
@@ -214,7 +225,8 @@ function buildBookingContext(state, customer = null) {
     dates: "Ask for both start date and end date. Minimum 1 week.",
     pickupOrDelivery: "Ask if they want pickup or delivery.",
     countryOfOrigin: "Ask what country they are from for insurance.",
-    address: "Ask for their Sunshine Coast address.",
+    address:
+      "Ask for their full Sunshine Coast address, including the house or unit number.",
     name: "Ask for their name.",
     phone: "Ask for their mobile number.",
     email: "Ask for their email address.",
@@ -262,7 +274,7 @@ function buildNextQuestion(state) {
     pickupOrDelivery:
       "Pickup from Tewantin or Maroochydore, or delivery for $40?",
     countryOfOrigin: "What country are you from for insurance?",
-    address: "What is your Sunshine Coast address?",
+    address: "What is your full Sunshine Coast address, including house or unit number?",
     name: "What is your name?",
     phone: "Best Australian mobile number for you?",
     email: "What email should we use?",
@@ -315,6 +327,10 @@ function sanitizeValue(field, value) {
 
   if (field === "licencePhotoFrontUrl" || field === "licencePhotoBackUrl") {
     return /^https?:\/\//i.test(v) ? v : "";
+  }
+
+  if (field === "address") {
+    return completeAddress(v);
   }
 
   return v;
@@ -455,7 +471,9 @@ async function prefillFromCustomerProfile(platform, platformId) {
   if (customerName && !booking.name) updates.name = customerName;
   if (customer.phone && !booking.phone) updates.phone = customer.phone;
   if (customer.email && !booking.email) updates.email = customer.email;
-  if (customer.address && !booking.address) updates.address = customer.address;
+  if (completeAddress(customer.address) && !booking.address) {
+    updates.address = completeAddress(customer.address);
+  }
   if (customer.country_of_origin && !booking.country_of_origin)
     updates.country_of_origin = customer.country_of_origin;
   if (customer.next_of_kin && !booking.next_of_kin)
@@ -507,7 +525,7 @@ async function ensureBooking(platform, platformId, customer) {
     name: customer?.name || customer?.full_name || "",
     phone: customer?.phone || "",
     email: customer?.email || "",
-    address: customer?.address || "",
+    address: completeAddress(customer?.address),
     country_of_origin: customer?.country_of_origin || "",
     next_of_kin: customer?.next_of_kin || "",
     next_of_kin_phone: customer?.next_of_kin_phone || "",
@@ -556,6 +574,13 @@ async function saveField(platform, platformId, field, rawValue) {
 
   const value = sanitizeValue(field, rawValue);
   if (!value) {
+    if (field === "address") {
+      return {
+        ok: false,
+        reason:
+          "Please send the full Sunshine Coast address, including the house or unit number.",
+      };
+    }
     return { ok: false, reason: `Invalid value for ${field}` };
   }
 
