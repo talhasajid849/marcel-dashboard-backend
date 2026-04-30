@@ -122,6 +122,7 @@ router.get('/stats', async (req, res) => {
       activeSubscriptions,
       pausedSubscriptions,
       completedSubscriptions,
+      failedBillingSubscriptions,
       totalRevenue,
       pendingRevenue,
     ] = await Promise.all([
@@ -129,6 +130,9 @@ router.get('/stats', async (req, res) => {
       Subscription.countDocuments({ status: 'ACTIVE' }),
       Subscription.countDocuments({ status: 'PAUSED' }),
       Subscription.countDocuments({ status: 'COMPLETED' }),
+      Subscription.countDocuments({
+        billing_status: { $in: ['SETUP_FAILED', 'PAYMENT_FAILED'] },
+      }),
       Subscription.aggregate([
         { $group: { _id: null, total: { $sum: '$total_paid' } } },
       ]),
@@ -145,6 +149,7 @@ router.get('/stats', async (req, res) => {
         active: activeSubscriptions,
         paused: pausedSubscriptions,
         completed: completedSubscriptions,
+        billing_failed: failedBillingSubscriptions,
         revenue: {
           collected: totalRevenue[0]?.total || 0,
           pending: pendingRevenue[0]?.total || 0,

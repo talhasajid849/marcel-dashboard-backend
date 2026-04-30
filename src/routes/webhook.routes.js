@@ -255,6 +255,7 @@ async function handleCheckoutCompleted(session) {
     await subscriptionService.createFromBooking(booking);
 
   // 6. Create Stripe Subscription (auto weekly charges)
+  let subscriptionSetupFailure = "";
   if (
     stripeCustomerId &&
     paymentIntentId &&
@@ -279,6 +280,9 @@ async function handleCheckoutCompleted(session) {
             {
               $set: {
                 auto_charge: true,
+                billing_status: "ACTIVE",
+                billing_failure_reason: "",
+                billing_failed_at: "",
                 stripe_subscription_id: stripeSub.id,
                 stripe_customer_id:
                   stripeCustomerId ||
@@ -294,22 +298,46 @@ async function handleCheckoutCompleted(session) {
             },
           );
           console.log("✅ Weekly subscription active:", stripeSub.id);
+        } else {
+          subscriptionSetupFailure = "Stripe did not create the weekly subscription";
         }
       } else {
+        subscriptionSetupFailure = "No saved payment method on PaymentIntent";
         console.warn(
           "⚠️  No payment method on PaymentIntent — subscription not created",
         );
       }
     } catch (err) {
+      subscriptionSetupFailure = err.message;
       console.error(
         "⚠️  Subscription creation error (booking still confirmed):",
         err.message,
       );
     }
+  } else if (!localSubscription?.stripe_subscription_id) {
+    subscriptionSetupFailure =
+      "Missing Stripe customer or upfront payment intent for auto billing";
+  }
+
+  if (subscriptionSetupFailure) {
+    await Subscription.findOneAndUpdate(
+      { booking_id: booking.booking_id },
+      {
+        $set: {
+          auto_charge: false,
+          billing_status: "SETUP_FAILED",
+          billing_failure_reason: subscriptionSetupFailure,
+          billing_failed_at: now,
+          updated_at: now,
+        },
+      },
+    );
   }
 
   // 7. Send WhatsApp confirmation
-  await sendConfirmationMessage(booking);
+  await sendConfirmationMessage(booking, {
+    autoBillingActive: !subscriptionSetupFailure,
+  });
 }
 
 async function handleWeeklyCheckoutCompleted(session) {
@@ -395,6 +423,13 @@ async function handleInvoicePaymentSucceeded(invoice) {
     console.log("✅ Week marked paid:", unpaidWeek.week_number);
   }
 
+  if (unpaidWeek) {
+    subscription.billing_status = "ACTIVE";
+    subscription.billing_failure_reason = "";
+    subscription.updated_at = now;
+    await subscription.save();
+  }
+
   // Send WhatsApp confirmation
   if (subscription.customer_whatsapp_id) {
     try {
@@ -424,6 +459,21 @@ async function handleInvoicePaymentFailed(invoice) {
     stripe_subscription_id: stripeSubId,
   });
   if (!subscription) return;
+
+  const failedWeek = subscription.weekly_payments.find(
+    (p) => p.status === "PENDING",
+  );
+  if (failedWeek) {
+    failedWeek.status = "OVERDUE";
+  }
+  subscription.billing_status = "PAYMENT_FAILED";
+  subscription.billing_failure_reason =
+    invoice.last_finalization_error?.message ||
+    invoice.last_payment_error?.message ||
+    "Weekly automatic card charge failed";
+  subscription.last_payment_failed_at = new Date().toISOString();
+  subscription.updated_at = new Date().toISOString();
+  await subscription.save();
 
   // Notify Cole
   const colePhone = process.env.COLE_WHATSAPP || "+61493654132";
@@ -504,7 +554,7 @@ async function createHireRecord(booking, now) {
   }
 }
 
-async function sendConfirmationMessage(booking) {
+async function sendConfirmationMessage(booking, options = {}) {
   if (!booking.platform_id) return;
   if (booking.confirmation_message_sent_at) return;
 
@@ -517,11 +567,15 @@ async function sendConfirmationMessage(booking) {
     const upfront =
       booking.amount_upfront || weeklyRate + deposit + deliveryFee;
 
+    const autoBillingLine = options.autoBillingActive
+      ? `From week 2 onwards your card will be charged $${weeklyRate} automatically each week - nothing to do on your end.`
+      : `We received your upfront payment. Weekly auto-billing needs a quick check on our side, so Cole will contact you if the card setup needs updating.`;
+
     const msg = [
       `Payment received — you're confirmed! 🎉`,
       `${booking.scooter_type} scooter from ${booking.start_date} to ${booking.end_date}.`,
       `Upfront paid: $${upfront} (first week $${weeklyRate} + deposit $${deposit}${deliveryFee ? ` + delivery $${deliveryFee}` : ""}).`,
-      `From week 2 onwards your card will be charged $${weeklyRate} automatically each week — nothing to do on your end.`,
+      autoBillingLine,
       `The $${deposit} deposit comes back when you return the bike undamaged with a full tank.`,
       `Any questions just message here. Enjoy the ride! 🛵`,
     ].join("\n\n");

@@ -86,6 +86,21 @@ const subscriptionSchema = new mongoose.Schema(
 
     // Automation settings
     auto_charge: { type: Boolean, default: false },
+    billing_status: {
+      type: String,
+      enum: [
+        "PENDING_SETUP",
+        "ACTIVE",
+        "SETUP_FAILED",
+        "PAYMENT_FAILED",
+        "MANUAL",
+        "CANCELLED",
+      ],
+      default: "PENDING_SETUP",
+    },
+    billing_failure_reason: { type: String, default: "" },
+    billing_failed_at: { type: String, default: "" },
+    last_payment_failed_at: { type: String, default: "" },
     stripe_subscription_id: { type: String, default: "" },
     stripe_customer_id: { type: String, default: "" },
     stripe_payment_intent_id: { type: String, default: "" },

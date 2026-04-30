@@ -101,7 +101,8 @@ class SubscriptionService {
         balance_due: totalExpected - weeklyRate,
 
         status: 'ACTIVE',
-        auto_charge: Boolean(booking.stripe_customer_id && booking.stripe_payment_intent_id),
+        auto_charge: false,
+        billing_status: 'PENDING_SETUP',
         stripe_customer_id: booking.stripe_customer_id || '',
         stripe_payment_intent_id: booking.stripe_payment_intent_id || '',
         weekly_payments: [],

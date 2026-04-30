@@ -125,26 +125,38 @@ class WeeklyPaymentJob {
           }
         }
 
-        // Request payment
-        let paymentInfo = null;
-        if (!subscription.auto_charge) {
-          paymentInfo = await subscriptionService.requestWeeklyPayment(
-            subscription,
-            nextWeek.week_number,
+        if (!subscription.auto_charge || !subscription.stripe_subscription_id) {
+          const colePhone = process.env.COLE_WHATSAPP || "+61493654132";
+          await whatsappService.sendMessage(
+            colePhone,
+            [
+              "AUTO BILLING SETUP FAILED",
+              `Customer: ${subscription.customer_name}`,
+              `Phone: ${subscription.customer_phone}`,
+              `Scooter: ${subscription.scooter_plate}`,
+              `Week: ${nextWeek.week_number}`,
+              `Reason: ${subscription.billing_failure_reason || "No Stripe subscription id"}`,
+            ].join("\n"),
+            {
+              subscription_id: subscription.subscription_id,
+              week_number: nextWeek.week_number,
+            },
           );
-        }
-
-        if (!subscription.auto_charge && !paymentInfo) {
+          nextWeek.reminder_sent_at = new Date().toISOString();
+          nextWeek.reminder_count = (nextWeek.reminder_count || 0) + 1;
+          subscription.billing_status = "SETUP_FAILED";
+          subscription.billing_failure_reason =
+            subscription.billing_failure_reason || "No Stripe subscription id";
+          subscription.updated_at = new Date().toISOString();
+          await subscription.save();
           console.error(
-            `❌ Failed to create payment for ${subscription.subscription_id}`,
+            `Auto billing not active for ${subscription.subscription_id}`,
           );
           continue;
         }
 
         // Send WhatsApp message
-        const message = subscription.auto_charge
-          ? `Hey ${subscription.customer_name}, just a heads up — your weekly payment of $${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`
-          : `Hey ${subscription.customer_name}, your weekly payment of $${nextWeek.amount} is due this week. You can pay here: ${paymentInfo.paymentLink}`;
+        const message = `Hey ${subscription.customer_name}, just a heads up - your weekly payment of $${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`;
 
         await whatsappService.sendMessage(
           subscription.customer_whatsapp_id,
