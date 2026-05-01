@@ -166,4 +166,108 @@ router.post('/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+// PATCH /api/auth/credentials - Change login username and/or password
+router.patch('/credentials', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, username, newPassword } = req.body || {};
+
+    if (!currentPassword) {
+      return res.status(400).json({
+        success: false,
+        error: 'Current password is required'
+      });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        error: 'Current password is incorrect'
+      });
+    }
+
+    const nextUsername = String(username || '').trim().toLowerCase();
+    const wantsUsernameChange = nextUsername && nextUsername !== user.username;
+    const wantsPasswordChange = Boolean(newPassword);
+
+    if (!wantsUsernameChange && !wantsPasswordChange) {
+      return res.status(400).json({
+        success: false,
+        error: 'Enter a new username or new password'
+      });
+    }
+
+    if (nextUsername && nextUsername.length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'Username must be at least 3 characters'
+      });
+    }
+
+    if (wantsPasswordChange && newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'New password must be at least 6 characters'
+      });
+    }
+
+    if (wantsUsernameChange) {
+      const existingUser = await User.findOne({
+        username: nextUsername,
+        _id: { $ne: user._id }
+      });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          error: 'Username is already in use'
+        });
+      }
+
+      user.username = nextUsername;
+    }
+
+    if (wantsPasswordChange) {
+      user.password = newPassword;
+    }
+
+    user.updated_at = new Date();
+    await user.save();
+
+    const token = jwt.sign(
+      { userId: user._id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'your-secret-key-change-this',
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Login credentials updated successfully',
+      data: {
+        token,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Update credentials error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update login credentials'
+    });
+  }
+});
+
 module.exports = router;
