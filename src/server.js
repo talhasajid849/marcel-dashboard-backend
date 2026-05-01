@@ -17,6 +17,8 @@ const subscriptionsRoutes = require('./routes/subscriptions.routes');
 const webhookRoutes = require('./routes/webhook.routes');
 const metaRoutes = require('./routes/meta.routes');
 const paymentRoutes = require('./routes/payment.routes');
+const settingsRoutes = require('./routes/settings.routes');
+const pricingService = require('./services/pricingService');
 
 const app = express();
 
@@ -101,6 +103,7 @@ app.use('/api/services', servicesRoutes);
 app.use('/api/hires', hiresRoutes);
 app.use('/api/subscriptions', subscriptionsRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/settings', authMiddleware, settingsRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -134,6 +137,8 @@ async function startServer() {
   try {
     await connectDB();
     console.log('✅ MongoDB connected successfully');
+    await pricingService.getSettings();
+    console.log('✅ Pricing settings loaded');
 
     // ⏰ Start Cron Jobs
     cronService.start();

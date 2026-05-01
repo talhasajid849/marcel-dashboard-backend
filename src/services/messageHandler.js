@@ -27,6 +27,7 @@ const Message = require("../models/Message");
 const { getReply } = require("./aiService");
 const platformMessenger = require("./platformMessenger");
 const bookingStateService = require("./bookingStateService");
+const pricingService = require("./pricingService");
 
 const DAVE_WHATSAPP = process.env.DAVE_WHATSAPP || "+61431398443";
 const COLE_WHATSAPP = process.env.COLE_WHATSAPP || "+61493654132";
@@ -282,23 +283,28 @@ async function bookingProgressReply(platform, platformId) {
 
   if (finalization.ok && finalization.paymentLink) {
     const booking = finalization.booking || {};
+    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const firstWeekRate =
+      finalization.pricing?.firstWeekRate ||
+      booking.first_week_rate ||
+      quote.firstWeekRate;
     const weeklyRate =
       finalization.pricing?.weeklyRate ||
       booking.weekly_rate ||
-      (booking.scooter_type === "125cc" ? 160 : 150);
-    const deposit = finalization.pricing?.deposit || booking.deposit || 300;
+      quote.weeklyRate;
+    const deposit = finalization.pricing?.deposit || booking.deposit || quote.deposit;
     const deliveryFee =
       finalization.pricing?.deliveryFee ??
       booking.delivery_fee ??
-      (booking.pickup_delivery === "delivery" ? 40 : 0);
+      quote.deliveryFee;
     const amountUpfront =
       finalization.amountUpfront ||
       booking.amount_upfront ||
-      weeklyRate + deposit + deliveryFee;
+      firstWeekRate + deposit + deliveryFee;
 
     return [
       `Thanks, we have everything now. Your upfront payment is $${amountUpfront}.`,
-      `That includes $${weeklyRate} for the first week, $${deposit} refundable deposit${deliveryFee ? `, and $${deliveryFee} delivery` : ""}.`,
+      `That includes $${firstWeekRate} for the first week, $${deposit} refundable deposit${deliveryFee ? `, and $${deliveryFee} delivery` : ""}.`,
       `After that it is $${weeklyRate} per week while you have the scooter.`,
       `Payment link: ${finalization.paymentLink}`,
     ].join("\n\n");

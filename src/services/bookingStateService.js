@@ -4,6 +4,7 @@ const Booking = require("../models/Booking");
 const Customer = require("../models/Customer");
 const Fleet = require("../models/Fleet");
 const stripeService = require("./stripeService");
+const pricingService = require("./pricingService");
 
 const HOLD_DURATION_HOURS = Number(process.env.PAYMENT_HOLD_HOURS || 3);
 
@@ -119,11 +120,7 @@ function nextField(state) {
 function buildBookingContext(state, customer = null) {
   const missing = nextField(state);
 
-  // Calculate correct pricing based on current state
-  const weeklyRate = state.scooterType === "125cc" ? 160 : 150;
-  const deposit = 300;
-  const deliveryFee = state.pickupOrDelivery === "delivery" ? 40 : 0;
-  const upfront = weeklyRate + deposit + deliveryFee;
+  const pricing = pricingService.quote(state.scooterType, state.pickupOrDelivery);
 
   // Build customer history section
   const tier = customer?.customer_tier || "NEW";
@@ -189,10 +186,11 @@ function buildBookingContext(state, customer = null) {
     `Scooter type: ${state.scooterType || "NOT SET"}`,
     "",
     "# CORRECT PRICING (use these exact numbers, do not guess)",
-    `Weekly rate: $${weeklyRate}/week`,
-    `Deposit: $${deposit} refundable`,
-    `Delivery fee: $${deliveryFee}`,
-    `Upfront total: $${upfront} (first week + deposit${deliveryFee ? " + delivery" : ""})`,
+    `First week payment: $${pricing.firstWeekRate}`,
+    `Weekly renewal after week 1: $${pricing.weeklyRate}/week`,
+    `Deposit: $${pricing.deposit} refundable`,
+    `Delivery fee: $${pricing.deliveryFee}`,
+    `Upfront total: $${pricing.amountUpfront} (first week payment + deposit${pricing.deliveryFee ? " + delivery" : ""})`,
     "",
     ...customerLines,
     `Licence type: ${state.licenceType || "NOT SET"}`,
@@ -642,17 +640,7 @@ async function saveLicencePhoto(platform, platformId, mediaUrl) {
 }
 
 function calculatePricing(scooterType, pickupOrDelivery) {
-  const weeklyRate = scooterType === "125cc" ? 160 : 150;
-  const deposit = 300;
-  const deliveryFee = pickupOrDelivery === "delivery" ? 40 : 0;
-  const amountUpfront = weeklyRate + deposit + deliveryFee;
-
-  return {
-    weeklyRate,
-    deposit,
-    deliveryFee,
-    amountUpfront,
-  };
+  return pricingService.quote(scooterType, pickupOrDelivery);
 }
 
 function addHours(date, hours) {
@@ -907,6 +895,7 @@ async function finalizeBookingIfReady(platform, platformId) {
 
   const pricing = calculatePricing(state.scooterType, state.pickupOrDelivery);
 
+  booking.first_week_rate = pricing.firstWeekRate;
   booking.weekly_rate = pricing.weeklyRate;
   booking.deposit = pricing.deposit;
   booking.delivery_fee = pricing.deliveryFee;

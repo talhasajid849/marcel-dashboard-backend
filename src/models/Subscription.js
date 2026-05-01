@@ -57,7 +57,8 @@ const subscriptionSchema = new mongoose.Schema(
     customer_email: String,
 
     // Pricing
-    weekly_rate: { type: Number, required: true }, // 150 for 50cc, 160 for 125cc
+    first_week_rate: { type: Number, required: true },
+    weekly_rate: { type: Number, required: true }, // Renewal weekly rate after week 1
     deposit_amount: { type: Number, default: 300 },
     delivery_fee: { type: Number, default: 0 },
     upfront_amount: { type: Number, required: true }, // First week + deposit + delivery

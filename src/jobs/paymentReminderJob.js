@@ -7,6 +7,7 @@ const Booking = require('../models/Booking');
 const Fleet = require('../models/Fleet');
 const platformMessenger = require('../services/platformMessenger');
 const stripeService = require('../services/stripeService');
+const pricingService = require('../services/pricingService');
 
 const HOLD_DURATION_HOURS = Number(process.env.PAYMENT_HOLD_HOURS || 3);
 
@@ -63,17 +64,19 @@ class PaymentReminderJob {
   }
 
   buildReminderMessage(booking, reminder, remainingMinutes) {
-    const weeklyRate = booking.weekly_rate || (booking.scooter_type === '125cc' ? 160 : 150);
-    const deposit = booking.deposit || 300;
-    const deliveryFee = booking.delivery_fee || (booking.pickup_delivery === 'delivery' ? 40 : 0);
-    const upfrontAmount = booking.amount_upfront || (weeklyRate + deposit + deliveryFee);
+    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const firstWeekRate = booking.first_week_rate || quote.firstWeekRate;
+    const weeklyRate = booking.weekly_rate || quote.weeklyRate;
+    const deposit = booking.deposit || quote.deposit;
+    const deliveryFee = booking.delivery_fee || quote.deliveryFee;
+    const upfrontAmount = booking.amount_upfront || (firstWeekRate + deposit + deliveryFee);
     const finalLine = reminder.number === 3
       ? 'This is the final reminder before the hold expires.'
       : 'The scooter is only held for this payment window.';
 
     return [
       `Payment reminder ${reminder.number}/3 for booking ${booking.booking_id}.`,
-      `Your upfront payment is $${upfrontAmount}: $${weeklyRate} first week + $${deposit} refundable deposit${deliveryFee ? ` + $${deliveryFee} delivery` : ''}.`,
+      `Your upfront payment is $${upfrontAmount}: $${firstWeekRate} first week + $${deposit} refundable deposit${deliveryFee ? ` + $${deliveryFee} delivery` : ''}.`,
       `After that it is $${weeklyRate} per week while you have the scooter.`,
       `Time left before this hold expires: about ${remainingMinutes} minutes.`,
       `Payment link: ${booking.stripe_link}`,

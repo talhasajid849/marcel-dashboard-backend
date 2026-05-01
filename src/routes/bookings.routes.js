@@ -7,6 +7,7 @@ const Subscription = require('../models/Subscription');
 const Hire = require('../models/Hire');
 const emailService = require('../services/emailService');
 const stripeService = require('../services/stripeService');
+const pricingService = require('../services/pricingService');
 
 const EDITABLE_BOOKING_FIELDS = [
   'customer_id',
@@ -31,6 +32,7 @@ const EDITABLE_BOOKING_FIELDS = [
   'license_photo_front_url',
   'license_photo_back_url',
   'amount_upfront',
+  'first_week_rate',
   'weekly_rate',
   'deposit',
   'delivery_fee',
@@ -86,20 +88,19 @@ function validateBookingDates(data) {
   return null;
 }
 
-function applyBookingPricing(data) {
-  const weeklyRate =
-    Number(data.weekly_rate) ||
-    (data.scooter_type === '125cc' ? 160 : data.scooter_type === '50cc' ? 150 : 0);
-  const deposit = Number(data.deposit) || 300;
-  const deliveryFee =
-    Number(data.delivery_fee) ||
-    (data.pickup_delivery === 'delivery' ? 40 : 0);
+function applyBookingPricing(data, options = {}) {
+  const quote = pricingService.quote(data.scooter_type, data.pickup_delivery);
+  const firstWeekRate = Number(data.first_week_rate) || quote.firstWeekRate;
+  const weeklyRate = Number(data.weekly_rate) || quote.weeklyRate;
+  const deposit = Number(data.deposit) || quote.deposit;
+  const deliveryFee = Number(data.delivery_fee) || quote.deliveryFee;
 
+  if (!data.first_week_rate && firstWeekRate) data.first_week_rate = firstWeekRate;
   if (!data.weekly_rate && weeklyRate) data.weekly_rate = weeklyRate;
   if (!data.deposit) data.deposit = deposit;
   data.delivery_fee = deliveryFee;
-  if (!data.amount_upfront && weeklyRate) {
-    data.amount_upfront = weeklyRate + deposit + deliveryFee;
+  if ((options.recalculateUpfront || !data.amount_upfront) && firstWeekRate) {
+    data.amount_upfront = firstWeekRate + deposit + deliveryFee;
   }
 }
 
@@ -499,8 +500,8 @@ router.post('/', async (req, res) => {
     const booking = new Booking(data);
     await booking.save();
     await syncFleetForBooking(booking);
-    if (status === 'CANCELLED') {
-      await cancelOperationalRecordsForBooking(booking, notes || 'Booking cancelled via dashboard');
+    if (data.status === 'CANCELLED') {
+      await cancelOperationalRecordsForBooking(booking, data.notes || 'Booking cancelled via dashboard');
     }
 
     // 📧 Send pending booking email
@@ -537,9 +538,21 @@ router.patch('/:id', async (req, res) => {
 
     const updates = pickEditableBookingFields(req.body || {});
     updates.updated_at = new Date().toISOString();
-    applyBookingPricing(updates);
 
     const merged = { ...existing.toObject(), ...updates };
+    const pricingTouched = [
+      'scooter_type',
+      'pickup_delivery',
+      'first_week_rate',
+      'weekly_rate',
+      'deposit',
+      'delivery_fee',
+    ].some((field) => Object.prototype.hasOwnProperty.call(updates, field));
+    applyBookingPricing(merged, {
+      recalculateUpfront:
+        pricingTouched &&
+        !Object.prototype.hasOwnProperty.call(updates, 'amount_upfront'),
+    });
     const dateError = validateBookingDates(merged);
     if (dateError) {
       return res.status(400).json({ success: false, error: dateError });
@@ -549,6 +562,14 @@ router.patch('/:id', async (req, res) => {
     if (scooterError) {
       return res.status(409).json({ success: false, error: scooterError });
     }
+
+    Object.assign(updates, {
+      first_week_rate: merged.first_week_rate,
+      weekly_rate: merged.weekly_rate,
+      deposit: merged.deposit,
+      delivery_fee: merged.delivery_fee,
+      amount_upfront: merged.amount_upfront,
+    });
 
     const booking = await Booking.findOneAndUpdate(
       { booking_id: id },

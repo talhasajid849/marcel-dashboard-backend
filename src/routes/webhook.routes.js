@@ -18,6 +18,7 @@ const Fleet = require("../models/Fleet");
 const Subscription = require("../models/Subscription");
 const Hire = require("../models/Hire");
 const stripeService = require("../services/stripeService");
+const pricingService = require("../services/pricingService");
 
 // ── POST /api/webhook/stripe ─────────────────────────────────────────────────
 
@@ -562,12 +563,13 @@ async function sendConfirmationMessage(booking, options = {}) {
 
   try {
     const platformMessenger = require("../services/platformMessenger");
-    const weeklyRate =
-      booking.weekly_rate || (booking.scooter_type === "125cc" ? 160 : 150);
-    const deposit = booking.deposit || 300;
+    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const firstWeekRate = booking.first_week_rate || quote.firstWeekRate;
+    const weeklyRate = booking.weekly_rate || quote.weeklyRate;
+    const deposit = booking.deposit || quote.deposit;
     const deliveryFee = booking.delivery_fee || 0;
     const upfront =
-      booking.amount_upfront || weeklyRate + deposit + deliveryFee;
+      booking.amount_upfront || firstWeekRate + deposit + deliveryFee;
 
     const autoBillingLine = options.autoBillingActive
       ? `From week 2 onwards your card will be charged $${weeklyRate} automatically each week - nothing to do on your end.`
@@ -576,7 +578,7 @@ async function sendConfirmationMessage(booking, options = {}) {
     const msg = [
       `Payment received — you're confirmed! 🎉`,
       `${booking.scooter_type} scooter from ${booking.start_date} to ${booking.end_date}.`,
-      `Upfront paid: $${upfront} (first week $${weeklyRate} + deposit $${deposit}${deliveryFee ? ` + delivery $${deliveryFee}` : ""}).`,
+      `Upfront paid: $${upfront} (first week $${firstWeekRate} + deposit $${deposit}${deliveryFee ? ` + delivery $${deliveryFee}` : ""}).`,
       autoBillingLine,
       `The $${deposit} deposit comes back when you return the bike undamaged with a full tank.`,
       `Any questions just message here. Enjoy the ride! 🛵`,

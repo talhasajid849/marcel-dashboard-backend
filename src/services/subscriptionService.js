@@ -8,6 +8,7 @@ const Hire = require('../models/Hire');
 const Booking = require('../models/Booking');
 const Customer = require('../models/Customer');
 const stripeService = require('./stripeService');
+const pricingService = require('./pricingService');
 
 function resolveCustomerName(booking, customer) {
   return booking?.name || customer?.name || customer?.full_name || '';
@@ -62,14 +63,16 @@ class SubscriptionService {
         : 7;
       const totalWeeks = Math.max(1, Math.ceil(diffDays / 7));
 
-      // Get weekly rate
-      const weeklyRate = booking.scooter_type === '50cc' ? 150 : 160;
+      const pricing = await pricingService.getPricing();
+      const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing);
+      const firstWeekRate = Number(booking.first_week_rate) || quote.firstWeekRate;
+      const weeklyRate = Number(booking.weekly_rate) || quote.weeklyRate;
 
       // Calculate amounts
-      const depositAmount = 300;
-      const deliveryFee = booking.delivery_fee || (booking.pickup_delivery === 'delivery' ? 40 : 0);
-      const upfrontAmount = booking.amount_upfront || (weeklyRate + depositAmount + deliveryFee);
-      const totalExpected = weeklyRate * totalWeeks;
+      const depositAmount = Number(booking.deposit) || quote.deposit;
+      const deliveryFee = Number(booking.delivery_fee) || quote.deliveryFee;
+      const upfrontAmount = booking.amount_upfront || (firstWeekRate + depositAmount + deliveryFee);
+      const totalExpected = firstWeekRate + weeklyRate * Math.max(0, totalWeeks - 1);
 
       // Create subscription
       const subscription = new Subscription({
@@ -86,6 +89,7 @@ class SubscriptionService {
         customer_whatsapp_id: booking.platform_id,
         customer_email: resolveCustomerEmail(booking, customer),
 
+        first_week_rate: firstWeekRate,
         weekly_rate: weeklyRate,
         deposit_amount: depositAmount,
         delivery_fee: deliveryFee,
@@ -96,9 +100,9 @@ class SubscriptionService {
         total_weeks: totalWeeks,
 
         weeks_paid: 1, // First week paid upfront
-        total_paid: weeklyRate, // First week amount
+        total_paid: firstWeekRate, // First week amount
         total_expected: totalExpected,
-        balance_due: totalExpected - weeklyRate,
+        balance_due: totalExpected - firstWeekRate,
 
         status: 'ACTIVE',
         auto_charge: false,
@@ -120,7 +124,7 @@ class SubscriptionService {
         const payment = {
           week_number: week,
           due_date: dueDate.toISOString().split('T')[0],
-          amount: weeklyRate,
+          amount: week === 1 ? firstWeekRate : weeklyRate,
           status: week === 1 ? 'PAID' : 'PENDING',
           payment_method: week === 1 ? 'UPFRONT' : '',
           paid_at: week === 1 ? booking.confirmed_at || new Date().toISOString() : '',

@@ -68,6 +68,7 @@ const bookingSchema = new mongoose.Schema(
 
     // Pricing
     amount_upfront: Number,
+    first_week_rate: Number,
     weekly_rate: Number,
     deposit: {
       type: Number,

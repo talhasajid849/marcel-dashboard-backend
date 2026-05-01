@@ -11,6 +11,7 @@
  */
 
 const https = require('https');
+const pricingService = require('./pricingService');
 
 class StripeService {
   constructor() {
@@ -87,16 +88,19 @@ class StripeService {
       return null;
     }
 
-    const weeklyRate  = booking.scooter_type === '125cc' ? 160 : 150;
-    const deposit     = 300;
-    const deliveryFee = booking.pickup_delivery === 'delivery' ? 40 : 0;
-    const upfront     = weeklyRate + deposit + deliveryFee;
+    const pricing = await pricingService.getPricing();
+    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing);
+    const firstWeekRate = quote.firstWeekRate;
+    const weeklyRate = quote.weeklyRate;
+    const deposit = quote.deposit;
+    const deliveryFee = quote.deliveryFee;
+    const upfront = quote.amountUpfront;
     const amountCents = Math.round(upfront * 100);
     const holdHours = Number(process.env.PAYMENT_HOLD_HOURS || 3);
     const expiresAt = Math.floor((Date.now() + holdHours * 60 * 60 * 1000) / 1000);
 
     const desc = [
-      `${booking.scooter_type} Scooter - First Week $${weeklyRate}`,
+      `${booking.scooter_type} Scooter - First Week $${firstWeekRate}`,
       `Refundable Deposit $${deposit}`,
       deliveryFee ? `Delivery $${deliveryFee}` : null,
     ].filter(Boolean).join(' + ');
@@ -112,6 +116,7 @@ class StripeService {
         'line_items[0][quantity]': 1,
         'metadata[booking_id]':     booking.booking_id,
         'metadata[payment_type]':   'upfront',
+        'metadata[first_week_rate]': firstWeekRate,
         'metadata[weekly_rate]':    weeklyRate,
         'metadata[scooter_type]':   booking.scooter_type,
         'metadata[pickup_delivery]':booking.pickup_delivery || 'pickup',
@@ -145,6 +150,7 @@ class StripeService {
               ? new Date(session.expires_at * 1000).toISOString()
               : new Date(expiresAt * 1000).toISOString(),
             amount_upfront:    upfront,
+            first_week_rate:   firstWeekRate,
             weekly_rate:       weeklyRate,
             deposit:           deposit,
             delivery_fee:      deliveryFee,
@@ -184,7 +190,8 @@ class StripeService {
     if (!this.secretKey) return null;
 
     try {
-      const weeklyRate  = Number(booking.weekly_rate) || (booking.scooter_type === '125cc' ? 160 : 150);
+      const pricing = await pricingService.getPricing();
+      const weeklyRate = Number(booking.weekly_rate) || pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing).weeklyRate;
       const amountCents = Math.round(weeklyRate * 100);
 
       // Billing starts 1 week from hire start (or 7 days from now if no start date).
@@ -343,15 +350,7 @@ class StripeService {
   // ── Pricing helpers ───────────────────────────────────────────────────────
 
   calculatePricing(scooterType, pickupOrDelivery) {
-    const weeklyRate  = scooterType === '125cc' ? 160 : 150;
-    const deposit     = 300;
-    const deliveryFee = pickupOrDelivery === 'delivery' ? 40 : 0;
-    return {
-      weeklyRate,
-      deposit,
-      deliveryFee,
-      amountUpfront: weeklyRate + deposit + deliveryFee,
-    };
+    return pricingService.quote(scooterType, pickupOrDelivery);
   }
 }
 
