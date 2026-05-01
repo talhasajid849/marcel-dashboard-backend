@@ -148,7 +148,8 @@ Collect these in order. One at a time. Conversationally.
 
 1. Scooter type (after understanding needs)
 2. Licence check
-3. Start date + end date (minimum 1 week)
+3. **Dates** - start and end. Minimum charge is 1 week regardless of return date.
+   If customer gives less than 7 days, say: "no worries — just so you know, our minimum charge is 1 week, so you'd pay for 7 days even if you return it earlier. still keen?"
 4. Pickup or delivery
 5. Country (for insurance)
 6. Address (on Sunshine Coast)

@@ -58,9 +58,7 @@ function valueOf(booking, customer, field) {
 }
 
 function hasStreetNumber(value) {
-  return /\b\d+[a-zA-Z]?(?:\s*\/\s*\d+[a-zA-Z]?)?\b/.test(
-    String(value || ""),
-  );
+  return /\b\d+[a-zA-Z]?(?:\s*\/\s*\d+[a-zA-Z]?)?\b/.test(String(value || ""));
 }
 
 function completeAddress(value) {
@@ -274,7 +272,8 @@ function buildNextQuestion(state) {
     pickupOrDelivery:
       "Pickup from Tewantin or Maroochydore, or delivery for $40?",
     countryOfOrigin: "What country are you from for insurance?",
-    address: "What is your full Sunshine Coast address, including house or unit number?",
+    address:
+      "What is your full Sunshine Coast address, including house or unit number?",
     name: "What is your name?",
     phone: "Best Australian mobile number for you?",
     email: "What email should we use?",
@@ -513,7 +512,9 @@ async function ensureBooking(platform, platformId, customer) {
 
   const now = new Date().toISOString();
   const frontLicenceUrl =
-    customer?.licence_photo_front_url || customer?.license_photo_front_url || "";
+    customer?.licence_photo_front_url ||
+    customer?.license_photo_front_url ||
+    "";
   const backLicenceUrl =
     customer?.licence_photo_back_url || customer?.license_photo_back_url || "";
 
@@ -865,16 +866,23 @@ async function finalizeBookingIfReady(platform, platformId) {
     const start = new Date(state.startDate);
     const end = new Date(state.endDate);
     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    // If less than 7 days — still proceed but charge for 1 full week
     if (days < 7) {
       const minEnd = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const minEndStr = minEnd.toISOString().split("T")[0];
-      return {
-        ok: false,
-        ready: false,
-        minimumHireNotMet: true,
-        suggestedEndDate: minEndStr,
-        reason: `Minimum hire is 1 week. Earliest end date for ${state.startDate} start is ${minEndStr}.`,
-      };
+      state.endDate = minEnd.toISOString().split("T")[0];
+      // Update booking end date to minimum 1 week
+      await Booking.findOneAndUpdate(
+        { booking_id: state.bookingId },
+        {
+          $set: {
+            end_date: state.endDate,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      );
+      console.log(
+        `⚠️ Hire less than 1 week — extended to ${state.endDate} (minimum charge applies)`,
+      );
     }
   }
 
