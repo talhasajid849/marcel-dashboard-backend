@@ -34,10 +34,17 @@ class WhatsAppService {
     this.lastError     = null;
     this.authDir       = path.resolve(process.env.WHATSAPP_SESSION_PATH || './whatsapp_session');
     this.retryCount    = 0;
-    this.maxRetries    = 10;
+    this.maxRetries    = Number(process.env.WHATSAPP_MAX_RETRIES || 10);
+    this.isStarting    = false;
+    this.reconnectTimer = null;
   }
 
   async initialize() {
+    if (this.isStarting) return;
+    this.isStarting = true;
+    this.connectionStatus = this.isReady ? 'CONNECTED' : 'INITIALIZING';
+    this.lastError = null;
+
     // Baileys must be imported dynamically (ESM module)
     const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = 
       await import('@whiskeysockets/baileys');
@@ -60,6 +67,8 @@ class WhatsAppService {
       syncFullHistory: false,
       markOnlineOnConnect: false,
     });
+
+    this.isStarting = false;
 
     // Save credentials whenever they update
     this.sock.ev.on('creds.update', saveCreds);
@@ -97,9 +106,11 @@ class WhatsAppService {
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
         const loggedOut  = statusCode === DisconnectReason.loggedOut;
+        const qrTimeout  = statusCode === 408 && !this.isReady;
 
         this.isReady = false;
-        this.connectionStatus = 'DISCONNECTED';
+        this.connectionStatus = loggedOut ? 'AUTH_FAILED' : 'RECONNECTING';
+        this.lastError = `Disconnected with status ${statusCode || 'unknown'}`;
         console.log(`⚠️  WhatsApp disconnected. Status: ${statusCode} | Logged out: ${loggedOut}`);
 
         if (loggedOut) {
@@ -107,14 +118,19 @@ class WhatsAppService {
           console.log('🗑️  Session expired. Deleting auth files, will show QR again...');
           fs.rmSync(this.authDir, { recursive: true, force: true });
           this.retryCount = 0;
-          setTimeout(() => this.initialize(), 3000);
+          this.scheduleReconnect(3000, 'logged out');
+        } else if (qrTimeout) {
+          this.retryCount = 0;
+          this.scheduleReconnect(5000, 'QR timed out');
         } else if (this.retryCount < this.maxRetries) {
           // Temporary disconnect — reconnect automatically
           this.retryCount++;
           const delay = Math.min(5000 * this.retryCount, 60000);
           console.log(`🔄 Reconnecting in ${delay / 1000}s (attempt ${this.retryCount}/${this.maxRetries})...`);
-          setTimeout(() => this.initialize(), delay);
+          this.scheduleReconnect(delay, `attempt ${this.retryCount}/${this.maxRetries}`);
         } else {
+          this.connectionStatus = 'ERROR';
+          this.lastError = 'Max reconnect attempts reached. Restart WhatsApp from the dashboard or restart the backend.';
           console.error('❌ Max reconnect attempts reached. Restart the server manually.');
         }
       }
@@ -132,6 +148,56 @@ class WhatsAppService {
         }
       }
     });
+  }
+
+  scheduleReconnect(delay, reason) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+
+    this.connectionStatus = 'RECONNECTING';
+    console.log(`Reconnecting WhatsApp in ${delay / 1000}s (${reason})...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.initialize();
+    }, delay);
+  }
+
+  async restart({ clearSession = false } = {}) {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    try {
+      if (this.sock?.end) {
+        this.sock.end(undefined);
+      }
+    } catch (error) {
+      console.warn('WhatsApp socket close warning:', error.message);
+    }
+
+    if (clearSession) {
+      fs.rmSync(this.authDir, { recursive: true, force: true });
+    }
+
+    this.sock = null;
+    this.isReady = false;
+    this.qrCode = null;
+    this.qrCodeDataUrl = null;
+    this.connectionStatus = 'INITIALIZING';
+    this.lastError = null;
+    this.retryCount = 0;
+    this.isStarting = false;
+
+    await this.initialize();
+    return this.getStatus();
+  }
+
+  async ensureStarted() {
+    if (!this.sock && !this.isStarting && !this.reconnectTimer) {
+      await this.initialize();
+    }
   }
 
   async handleIncomingMessage(msg) {
@@ -279,6 +345,7 @@ class WhatsAppService {
       lastError:     this.lastError,
       authDir:       this.authDir,
       retryCount:    this.retryCount,
+      isStarting:    this.isStarting,
     };
   }
 

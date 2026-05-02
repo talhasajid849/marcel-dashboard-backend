@@ -16,6 +16,7 @@ router.use(authMiddleware);
 // GET /api/whatsapp/status - Get WhatsApp connection status
 router.get('/status', async (req, res) => {
   try {
+    await whatsappService.ensureStarted();
     const status = whatsappService.getStatus();
     res.json({ success: true, data: status });
   } catch (error) {
@@ -26,6 +27,7 @@ router.get('/status', async (req, res) => {
 // GET /api/whatsapp/qr - Get QR code for scanning
 router.get('/qr', async (req, res) => {
   try {
+    await whatsappService.ensureStarted();
     const qrData = whatsappService.getQRCode();
 
     if (!qrData.qrCodeDataUrl && qrData.status === 'CONNECTED') {
@@ -69,6 +71,18 @@ router.get('/qr', async (req, res) => {
         message: 'Scan this QR code with your WhatsApp',
       },
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/whatsapp/restart - Restart WhatsApp pairing without restarting backend
+router.post('/restart', async (req, res) => {
+  try {
+    const status = await whatsappService.restart({
+      clearSession: Boolean(req.body?.clearSession),
+    });
+    res.json({ success: true, data: status, message: 'WhatsApp restart requested' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
