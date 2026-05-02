@@ -23,13 +23,34 @@ const pricingService = require('./services/pricingService');
 const app = express();
 
 // CORS Configuration
+const configuredCorsOrigins = [
+  process.env.FRONTEND_URL,
+  ...(process.env.CORS_ORIGINS || '').split(','),
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'https://dashboard.honkhire.com',
+]
+  .map((origin) => origin && origin.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
+const allowedCorsOrigins = new Set(configuredCorsOrigins);
+
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin(origin, callback) {
+    if (!origin || allowedCorsOrigins.has(origin.replace(/\/$/, ''))) {
+      return callback(null, true);
+    }
+
+    return callback(null, false);
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Stripe webhook needs raw body — register BEFORE express.json()
 app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }), (req, res, next) => {
