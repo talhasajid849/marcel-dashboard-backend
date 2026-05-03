@@ -90,20 +90,25 @@ hireSchema.index({ hirer_whatsapp_id: 1 });
 hireSchema.index({ status: 1, next_service_due_km: 1 });
 
 // Method to add odometer reading
-hireSchema.methods.addOdometerReading = function(reading_km, method = 'MANUAL', notes = '') {
+hireSchema.methods.addOdometerReading = function(reading_km, method = 'MANUAL', notes = '', reportedBy = 'HIRER') {
+  const reading = Number(reading_km);
+  if (!Number.isFinite(reading)) {
+    throw new Error('Invalid odometer reading');
+  }
+
   this.odometer_readings.push({
-    reading_km,
+    reading_km: reading,
     reported_at: new Date().toISOString(),
-    reported_by: 'HIRER',
+    reported_by: reportedBy,
     reading_method: method,
     notes,
   });
   
-  this.current_odometer = reading_km;
+  this.current_odometer = reading;
   this.updated_at = new Date().toISOString();
   
   // Check if service is needed (within 200km of due)
-  if (this.next_service_due_km - reading_km <= this.service_due_threshold) {
+  if (this.next_service_due_km - reading <= this.service_due_threshold) {
     this.service_needed = true;
   }
   

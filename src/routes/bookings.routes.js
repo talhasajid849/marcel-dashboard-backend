@@ -216,6 +216,47 @@ async function cancelOperationalRecordsForBooking(booking, reason = 'Booking can
   );
 }
 
+async function processBookingRefund(booking, amount, reason = 'Booking cancelled') {
+  const refundAmount = Math.min(
+    Number(amount) || 0,
+    Number(booking.amount_upfront) || 0,
+  );
+
+  if (refundAmount <= 0) return null;
+
+  let paymentIntentId = booking.stripe_payment_intent_id;
+
+  if (!paymentIntentId && booking.stripe_session_id) {
+    const session = await stripeService.getCheckoutSession(booking.stripe_session_id);
+    paymentIntentId = session?.payment_intent;
+  }
+
+  if (!paymentIntentId) {
+    throw new Error('Cannot refund because no Stripe payment intent is stored for this booking');
+  }
+
+  const refund = await stripeService.refundDeposit(
+    paymentIntentId,
+    Math.round(refundAmount * 100),
+  );
+
+  if (!refund?.id) {
+    throw new Error('Stripe refund failed');
+  }
+
+  booking.payment_status = refundAmount >= Number(booking.amount_upfront || 0)
+    ? 'REFUNDED'
+    : booking.payment_status;
+  booking.refund_amount = refundAmount;
+  booking.refund_reason = reason;
+  booking.refund_at = new Date().toISOString();
+  booking.stripe_refund_id = refund.id;
+  booking.stripe_payment_intent_id = paymentIntentId;
+
+  await booking.save();
+  return refund;
+}
+
 function normalizeBookingPhotoFields(booking, customer = null) {
   if (!booking) return booking;
 
@@ -499,6 +540,7 @@ router.post('/', async (req, res) => {
     
     const booking = new Booking(data);
     await booking.save();
+
     await syncFleetForBooking(booking);
     if (data.status === 'CANCELLED') {
       await cancelOperationalRecordsForBooking(booking, data.notes || 'Booking cancelled via dashboard');
@@ -680,10 +722,6 @@ router.patch('/:id/cancel', async (req, res) => {
       notes: reason || 'Cancelled via dashboard'
     };
 
-    if (refund_amount) {
-      updates.payment_status = 'REFUNDED';
-    }
-
     const booking = await Booking.findOneAndUpdate(
       { booking_id: id },
       { $set: updates },
@@ -694,7 +732,12 @@ router.patch('/:id/cancel', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Booking not found' });
     }
 
+    if (refund_amount) {
+      await processBookingRefund(booking, refund_amount, reason || 'Booking cancelled');
+    }
+
     await syncFleetForBooking(booking);
+    await cancelOperationalRecordsForBooking(booking, reason || 'Booking cancelled via dashboard');
 
     // 📧 Send cancellation email
     if (booking.email) {

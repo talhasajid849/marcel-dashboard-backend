@@ -545,6 +545,15 @@ async function createHireRecord(booking, now) {
       hire_end_date: booking.end_date,
       odometer_at_hire_start: startOdo,
       current_odometer: startOdo,
+      odometer_readings: [
+        {
+          reading_km: startOdo,
+          reported_at: now,
+          reported_by: "SYSTEM",
+          reading_method: "HIRE_START",
+          notes: "Initial odometer reading at hire start",
+        },
+      ],
       next_service_due_km: startOdo + 2000,
       status: "ACTIVE",
       created_at: now,

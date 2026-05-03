@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const Hire = require('../models/Hire');
 const Booking = require('../models/Booking');
+const Fleet = require('../models/Fleet');
 const authMiddleware = require('../middleware/auth.middleware');
 
 router.use(authMiddleware);
@@ -108,7 +109,9 @@ router.post('/:id/odometer', async (req, res) => {
   try {
     const { reading_km, method = 'MANUAL', notes = '' } = req.body;
 
-    if (!reading_km) {
+    const reading = Number(reading_km);
+
+    if (!Number.isFinite(reading)) {
       return res.status(400).json({ success: false, error: 'reading_km is required' });
     }
 
@@ -118,7 +121,25 @@ router.post('/:id/odometer', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Hire not found' });
     }
 
-    await hire.addOdometerReading(reading_km, method, notes);
+    if (hire.current_odometer && reading < hire.current_odometer) {
+      return res.status(400).json({
+        success: false,
+        error: `Reading cannot be lower than current odometer (${hire.current_odometer}km)`,
+      });
+    }
+
+    await hire.addOdometerReading(reading, method, notes, 'ADMIN');
+
+    await Fleet.findOneAndUpdate(
+      { scooter_plate: hire.scooter_plate },
+      {
+        $set: {
+          odometer_km: reading,
+          next_service_due: String(hire.next_service_due_km),
+          updated_at: new Date().toISOString(),
+        },
+      }
+    );
 
     res.json({
       success: true,

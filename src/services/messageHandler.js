@@ -23,6 +23,7 @@
 
 const Hire = require("../models/Hire");
 const Service = require("../models/Service");
+const Fleet = require("../models/Fleet");
 const Message = require("../models/Message");
 const { getReply } = require("./aiService");
 const platformMessenger = require("./platformMessenger");
@@ -351,9 +352,21 @@ async function handleDaveMessage(text, message) {
   // Dave says job is DONE
   if (isDaveJobDone(text)) {
     const odometerReading = extractOdometerReading(text);
+    const now = new Date().toISOString();
+
+    if (hire?.current_odometer && odometerReading && odometerReading < hire.current_odometer) {
+      await sendMessage(
+        message.platform,
+        message.platform_id,
+        `That service odometer reading looks lower than the current hire reading (${hire.current_odometer}km). Please send the final km again with the scooter plate.`,
+      );
+      console.log(
+        `Rejected Dave service reading ${odometerReading}km because current is ${hire.current_odometer}km`,
+      );
+      return;
+    }
 
     // Update service record
-    const now = new Date().toISOString();
     service.status = "COMPLETED";
     service.service_completed_at = now;
     service.updated_at = now;
@@ -370,6 +383,15 @@ async function handleDaveMessage(text, message) {
       hire.service_needed = false;
       hire.service_scheduled = false;
       hire.service_booking_initiated = "";
+      if (odometerReading) {
+        hire.odometer_readings.push({
+          reading_km: odometerReading,
+          reported_at: now,
+          reported_by: "MECHANIC",
+          reading_method: "SERVICE_COMPLETE",
+          notes: `Service completed by ${service.mechanic_name || "mechanic"}`,
+        });
+      }
       hire.current_odometer = odometerReading || hire.current_odometer;
       hire.next_service_due_km = odometerReading
         ? odometerReading + 2000
@@ -382,7 +404,6 @@ async function handleDaveMessage(text, message) {
       hire.updated_at = now;
       await hire.save();
 
-      const Fleet = require("../models/Fleet");
       await Fleet.findOneAndUpdate(
         { scooter_plate: hire.scooter_plate },
         {
@@ -434,9 +455,35 @@ async function handleDaveMessage(text, message) {
 async function handleOdometerResponse(hire, reading, message) {
   console.log(`📏 Odometer reading from ${hire.hirer_name}: ${reading}km`);
 
+  if (hire.current_odometer && reading < hire.current_odometer) {
+    await sendMessage(
+      message.platform,
+      hire.hirer_whatsapp_id,
+      `Thanks ${hire.hirer_name}, but that looks lower than the last reading we have (${hire.current_odometer}km). Can you double-check the number on the dash and send it again?`,
+    );
+    console.log(
+      `Rejected odometer reading ${reading}km because current is ${hire.current_odometer}km`,
+    );
+    return;
+  }
+
+  const previousOdometer = hire.current_odometer;
+  const now = new Date().toISOString();
+
   // Mark Thursday check as responded
-  hire.thursday_check_responded = new Date().toISOString();
+  hire.thursday_check_responded = now;
   await hire.addOdometerReading(reading, "THURSDAY_CHECK");
+
+  await Fleet.findOneAndUpdate(
+    { scooter_plate: hire.scooter_plate },
+    {
+      $set: {
+        odometer_km: reading,
+        next_service_due: String(hire.next_service_due_km),
+        updated_at: now,
+      },
+    },
+  );
 
   const kmUntilService = hire.next_service_due_km - reading;
   console.log(
@@ -449,27 +496,33 @@ async function handleOdometerResponse(hire, reading, message) {
       `⚠️  Service due soon! Triggering service booking for ${hire.scooter_plate}`,
     );
 
-    // Create service record
-    const service = new Service({
-      service_id: "SVC-" + Date.now(),
-      scooter_plate: hire.scooter_plate,
-      scooter_type: hire.scooter_type,
-      service_type: "REGULAR_2000KM",
+    let service = await Service.findOne({
       hire_id: hire.hire_id,
-      hirer_name: hire.hirer_name,
-      hirer_phone: hire.hirer_phone,
-      hirer_whatsapp_id: hire.hirer_whatsapp_id,
-      previous_service_km: hire.current_odometer,
-      next_service_due_km: hire.next_service_due_km,
-      mechanic_name: "Dave",
-      mechanic_phone: DAVE_WHATSAPP,
-      status: "SCHEDULED",
+      status: { $in: ["SCHEDULED", "IN_PROGRESS"] },
     });
-    await service.save();
+
+    if (!service) {
+      service = new Service({
+        service_id: "SVC-" + Date.now(),
+        scooter_plate: hire.scooter_plate,
+        scooter_type: hire.scooter_type,
+        service_type: "REGULAR_2000KM",
+        hire_id: hire.hire_id,
+        hirer_name: hire.hirer_name,
+        hirer_phone: hire.hirer_phone,
+        hirer_whatsapp_id: hire.hirer_whatsapp_id,
+        previous_service_km: previousOdometer,
+        next_service_due_km: hire.next_service_due_km,
+        mechanic_name: "Dave",
+        mechanic_phone: DAVE_WHATSAPP,
+        status: "SCHEDULED",
+      });
+      await service.save();
+    }
 
     // Mark hire as service booking initiated
     hire.service_needed = true;
-    hire.service_booking_initiated = new Date().toISOString();
+    hire.service_booking_initiated = now;
     hire.service_id = service.service_id;
     await hire.save();
 

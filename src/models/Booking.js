@@ -93,6 +93,10 @@ const bookingSchema = new mongoose.Schema(
       enum: ["PENDING", "UNPAID", "PAID", "REFUNDED", "EXPIRED"],
     },
     payment_received_at: String,
+    refund_amount: Number,
+    refund_reason: String,
+    refund_at: String,
+    stripe_refund_id: String,
 
     // Booking Status
     status: {

@@ -99,8 +99,11 @@ Cheers, Marcel`;
       const today = new Date();
       const dayOfWeek = today.getDay(); // 0 = Sunday, 4 = Thursday
 
-      // Find all active hires
-      const activeHires = await Hire.find({ status: 'ACTIVE' });
+      // Find active hires that can actually receive WhatsApp odometer checks
+      const activeHires = await Hire.find({
+        status: 'ACTIVE',
+        hirer_whatsapp_id: { $exists: true, $nin: [null, ''] },
+      });
 
       console.log(`📋 Found ${activeHires.length} active hires`);
 
@@ -131,6 +134,8 @@ Cheers, Marcel`;
               hire.thursday_check_sent = now.toISOString();
               hire.last_thursday_check = todayDate;
               hire.thursday_check_responded = ''; // Reset response flag
+              hire.thursday_reminder_sent = '';
+              hire.escalated_to_cole = '';
               await hire.save();
 
               messagesSent++;
