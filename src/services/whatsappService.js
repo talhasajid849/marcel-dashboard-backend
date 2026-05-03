@@ -9,6 +9,7 @@
 const path  = require('path');
 const fs    = require('fs');
 const Message = require('../models/Message');
+const socketService = require('./socketService');
 
 function toIsoFromBaileysTimestamp(value) {
   const raw = typeof value === 'object' && value?.toNumber
@@ -91,6 +92,7 @@ class WhatsAppService {
         } catch (e) {
           console.error('QR to DataURL failed:', e.message);
         }
+        socketService.emitWhatsAppStatus(this.getStatus());
       }
 
       if (connection === 'open') {
@@ -101,6 +103,7 @@ class WhatsAppService {
         this.connectionStatus = 'CONNECTED';
         this.lastError     = null;
         this.retryCount    = 0;
+        socketService.emitWhatsAppStatus(this.getStatus());
       }
 
       if (connection === 'close') {
@@ -133,6 +136,7 @@ class WhatsAppService {
           this.lastError = 'Max reconnect attempts reached. Restart WhatsApp from the dashboard or restart the backend.';
           console.error('❌ Max reconnect attempts reached. Restart the server manually.');
         }
+        socketService.emitWhatsAppStatus(this.getStatus());
       }
     });
 
@@ -267,6 +271,7 @@ class WhatsAppService {
 
     try {
       await message.save();
+      await socketService.emitWhatsAppMessage(message);
     } catch (err) {
       if (err?.code === 11000) {
         console.warn('Duplicate incoming WhatsApp message skipped:', incomingMessageId);
@@ -321,10 +326,13 @@ class WhatsAppService {
       ...messageData,
     });
 
-    await message.save().catch(e => console.warn('Outgoing save warning:', e.message));
+    await message
+      .save()
+      .then(() => socketService.emitWhatsAppMessage(message))
+      .catch(e => console.warn('Outgoing save warning:', e.message));
 
     console.log('📤 WhatsApp message sent to:', jid);
-    return { success: true, timestamp: new Date().toISOString() };
+    return { success: true, message, timestamp: new Date().toISOString() };
   }
 
   getQRCode() {

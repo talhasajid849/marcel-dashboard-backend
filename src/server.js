@@ -19,6 +19,7 @@ const metaRoutes = require('./routes/meta.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const settingsRoutes = require('./routes/settings.routes');
 const pricingService = require('./services/pricingService');
+const socketService = require('./services/socketService');
 
 const app = express();
 
@@ -185,6 +186,7 @@ async function startServer() {
 ╚════════════════════════════════════════════╝
       `);
     });
+    socketService.init(server, corsOptions);
 
     // Graceful shutdown
     process.on('SIGTERM', () => {
