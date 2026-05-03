@@ -283,7 +283,7 @@ router.post('/:id/request-payment', async (req, res) => {
       await platformMessenger.sendMessage(
         'whatsapp',
         subscription.customer_whatsapp_id,
-        `Hey ${subscription.customer_name}, your week ${week_number} payment of $${result.amount} is ready here: ${result.paymentLink}`,
+        `Hey ${subscription.customer_name}, your week ${week_number} payment of AUD ${result.amount} is ready here: ${result.paymentLink}`,
         {
           subscription_id: subscription.subscription_id,
           week_number,

@@ -120,7 +120,12 @@ function nextField(state) {
 function buildBookingContext(state, customer = null) {
   const missing = nextField(state);
 
-  const pricing = pricingService.quote(state.scooterType, state.pickupOrDelivery);
+  const pricing = pricingService.quoteForBooking({
+    scooter_type: state.scooterType,
+    pickup_delivery: state.pickupOrDelivery,
+    start_date: state.startDate,
+    end_date: state.endDate,
+  });
 
   // Build customer history section
   const tier = customer?.customer_tier || "NEW";
@@ -186,11 +191,13 @@ function buildBookingContext(state, customer = null) {
     `Scooter type: ${state.scooterType || "NOT SET"}`,
     "",
     "# CORRECT PRICING (use these exact numbers, do not guess)",
-    `First week payment: $${pricing.firstWeekRate}`,
-    `Weekly renewal after week 1: $${pricing.weeklyRate}/week`,
-    `Deposit: $${pricing.deposit} refundable`,
-    `Delivery fee: $${pricing.deliveryFee}`,
-    `Upfront total: $${pricing.amountUpfront} (first week payment + deposit${pricing.deliveryFee ? " + delivery" : ""})`,
+    `First week payment: AUD ${pricing.firstWeekRate}`,
+    pricing.hasBookingDates && pricing.totalWeeks === 1
+      ? `One-week rental total: AUD ${pricing.rentalTotal} (no weekly renewal after this booking)`
+      : `Weekly renewal after week 1: AUD ${pricing.weeklyRate}/week`,
+    `Deposit: AUD ${pricing.deposit} refundable`,
+    `Delivery fee: AUD ${pricing.deliveryFee}`,
+    `Upfront total: AUD ${pricing.amountUpfront} (first week payment + deposit${pricing.deliveryFee ? " + delivery" : ""})`,
     "",
     ...customerLines,
     `Licence type: ${state.licenceType || "NOT SET"}`,
@@ -643,6 +650,15 @@ function calculatePricing(scooterType, pickupOrDelivery) {
   return pricingService.quote(scooterType, pickupOrDelivery);
 }
 
+function calculateBookingPricing(state) {
+  return pricingService.quoteForBooking({
+    scooter_type: state.scooterType,
+    pickup_delivery: state.pickupOrDelivery,
+    start_date: state.startDate,
+    end_date: state.endDate,
+  });
+}
+
 function addHours(date, hours) {
   return new Date(date.getTime() + hours * 60 * 60 * 1000);
 }
@@ -893,7 +909,7 @@ async function finalizeBookingIfReady(platform, platformId) {
     };
   }
 
-  const pricing = calculatePricing(state.scooterType, state.pickupOrDelivery);
+  const pricing = calculateBookingPricing(state);
 
   booking.first_week_rate = pricing.firstWeekRate;
   booking.weekly_rate = pricing.weeklyRate;

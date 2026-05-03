@@ -157,7 +157,7 @@ class WeeklyPaymentJob {
         }
 
         // Send WhatsApp message
-        const message = `Hey ${subscription.customer_name}, just a heads up - your weekly payment of $${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`;
+        const message = `Hey ${subscription.customer_name}, just a heads up - your weekly payment of AUD ${nextWeek.amount} will be automatically charged to your card this week. Nothing you need to do. Cheers!`;
 
         await whatsappService.sendMessage(
           subscription.customer_whatsapp_id,
@@ -327,7 +327,7 @@ Phone: ${subscription.customer_phone}
 Scooter: ${subscription.scooter_plate}
 
 Weeks overdue: ${weekNumbers}
-Amount owed: $${totalOwed}
+Amount owed: AUD ${totalOwed}
 
 Subscription: ${subscription.subscription_id}
 
@@ -347,7 +347,7 @@ Please contact customer manually.`;
 
         escalated++;
         console.log(
-          `✅ Escalated: ${subscription.customer_name} - $${totalOwed}`,
+          `✅ Escalated: ${subscription.customer_name} - AUD ${totalOwed}`,
         );
       } catch (error) {
         console.error(`❌ Error escalating:`, error.message);

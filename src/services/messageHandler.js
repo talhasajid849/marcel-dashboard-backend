@@ -284,7 +284,7 @@ async function bookingProgressReply(platform, platformId) {
 
   if (finalization.ok && finalization.paymentLink) {
     const booking = finalization.booking || {};
-    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const quote = pricingService.quoteForBooking(booking);
     const firstWeekRate =
       finalization.pricing?.firstWeekRate ||
       booking.first_week_rate ||
@@ -303,10 +303,16 @@ async function bookingProgressReply(platform, platformId) {
       booking.amount_upfront ||
       firstWeekRate + deposit + deliveryFee;
 
+    const renewalLine =
+      (finalization.pricing?.hasBookingDates || quote.hasBookingDates) &&
+      (finalization.pricing?.totalWeeks || quote.totalWeeks) === 1
+        ? `This is a one-week hire, so the rental charge is AUD ${firstWeekRate} and there is no weekly renewal after this booking.`
+        : `After that it is AUD ${weeklyRate} per week while you have the scooter.`;
+
     return [
-      `Thanks, we have everything now. Your upfront payment is $${amountUpfront}.`,
-      `That includes $${firstWeekRate} for the first week, $${deposit} refundable deposit${deliveryFee ? `, and $${deliveryFee} delivery` : ""}.`,
-      `After that it is $${weeklyRate} per week while you have the scooter.`,
+      `Thanks, we have everything now. Your upfront payment is AUD ${amountUpfront}.`,
+      `That includes AUD ${firstWeekRate} for the first week, AUD ${deposit} refundable deposit${deliveryFee ? `, and AUD ${deliveryFee} delivery` : ""}.`,
+      renewalLine,
       `Payment link: ${finalization.paymentLink}`,
     ].join("\n\n");
   }

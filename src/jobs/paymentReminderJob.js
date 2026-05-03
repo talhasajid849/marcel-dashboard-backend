@@ -64,7 +64,7 @@ class PaymentReminderJob {
   }
 
   buildReminderMessage(booking, reminder, remainingMinutes) {
-    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const quote = pricingService.quoteForBooking(booking);
     const firstWeekRate = booking.first_week_rate || quote.firstWeekRate;
     const weeklyRate = booking.weekly_rate || quote.weeklyRate;
     const deposit = booking.deposit || quote.deposit;
@@ -74,10 +74,15 @@ class PaymentReminderJob {
       ? 'This is the final reminder before the hold expires.'
       : 'The scooter is only held for this payment window.';
 
+    const renewalLine =
+      quote.hasBookingDates && quote.totalWeeks === 1
+        ? `This is a one-week hire, so the rental charge is AUD ${firstWeekRate} and there is no weekly renewal after this booking.`
+        : `After that it is AUD ${weeklyRate} per week while you have the scooter.`;
+
     return [
       `Payment reminder ${reminder.number}/3 for booking ${booking.booking_id}.`,
-      `Your upfront payment is $${upfrontAmount}: $${firstWeekRate} first week + $${deposit} refundable deposit${deliveryFee ? ` + $${deliveryFee} delivery` : ''}.`,
-      `After that it is $${weeklyRate} per week while you have the scooter.`,
+      `Your upfront payment is AUD ${upfrontAmount}: AUD ${firstWeekRate} first week + AUD ${deposit} refundable deposit${deliveryFee ? ` + AUD ${deliveryFee} delivery` : ''}.`,
+      renewalLine,
       `Time left before this hold expires: about ${remainingMinutes} minutes.`,
       `Payment link: ${booking.stripe_link}`,
       finalLine,

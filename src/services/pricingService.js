@@ -8,6 +8,9 @@ const DEFAULT_PRICING = {
   delivery_fee: 40,
 };
 
+const PAYMENT_CURRENCY = 'AUD';
+const STRIPE_CURRENCY = 'aud';
+
 let cachedPricing = { ...DEFAULT_PRICING };
 
 function normalizePricing(pricing = {}) {
@@ -71,19 +74,58 @@ function quote(scooterType, pickupOrDelivery, pricing = cachedPricing) {
   const deliveryFee = pickupOrDelivery === 'delivery' ? normalized.delivery_fee : 0;
 
   return {
+    currency: PAYMENT_CURRENCY,
+    stripeCurrency: STRIPE_CURRENCY,
     firstWeekRate,
     weeklyRate,
     deposit,
     deliveryFee,
+    totalWeeks: 1,
+    rentalTotal: firstWeekRate,
     amountUpfront: firstWeekRate + deposit + deliveryFee,
+  };
+}
+
+function calculateBillableWeeks(startDate, endDate) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return 1;
+  }
+
+  const diffDays = Math.max(
+    1,
+    Math.ceil((end - start) / (1000 * 60 * 60 * 24)),
+  );
+
+  return Math.max(1, Math.ceil(diffDays / 7));
+}
+
+function quoteForBooking(booking = {}, pricing = cachedPricing) {
+  const base = quote(booking.scooter_type, booking.pickup_delivery, pricing);
+  const hasBookingDates = Boolean(booking.start_date && booking.end_date);
+  const totalWeeks = calculateBillableWeeks(booking.start_date, booking.end_date);
+  const rentalTotal =
+    base.firstWeekRate + base.weeklyRate * Math.max(0, totalWeeks - 1);
+
+  return {
+    ...base,
+    hasBookingDates,
+    totalWeeks,
+    rentalTotal,
   };
 }
 
 module.exports = {
   DEFAULT_PRICING,
+  PAYMENT_CURRENCY,
+  STRIPE_CURRENCY,
   getSettings,
   updateSettings,
   getPricing,
   getCachedPricing,
   quote,
+  quoteForBooking,
+  calculateBillableWeeks,
 };

@@ -54,17 +54,10 @@ class SubscriptionService {
         return existing;
       }
 
-      // Calculate total weeks
-      const startDate = new Date(booking.start_date);
-      const endDate = new Date(booking.end_date);
-      const hasValidDates = !Number.isNaN(startDate.getTime()) && !Number.isNaN(endDate.getTime());
-      const diffDays = hasValidDates
-        ? Math.max(1, Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)))
-        : 7;
-      const totalWeeks = Math.max(1, Math.ceil(diffDays / 7));
-
       const pricing = await pricingService.getPricing();
-      const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing);
+      const quote = pricingService.quoteForBooking(booking, pricing);
+      const startDate = new Date(booking.start_date);
+      const totalWeeks = quote.totalWeeks;
       const firstWeekRate = Number(booking.first_week_rate) || quote.firstWeekRate;
       const weeklyRate = Number(booking.weekly_rate) || quote.weeklyRate;
 

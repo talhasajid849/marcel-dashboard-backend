@@ -89,7 +89,7 @@ function validateBookingDates(data) {
 }
 
 function applyBookingPricing(data, options = {}) {
-  const quote = pricingService.quote(data.scooter_type, data.pickup_delivery);
+  const quote = pricingService.quoteForBooking(data);
   const firstWeekRate = Number(data.first_week_rate) || quote.firstWeekRate;
   const weeklyRate = Number(data.weekly_rate) || quote.weeklyRate;
   const deposit = Number(data.deposit) || quote.deposit;

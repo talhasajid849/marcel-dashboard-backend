@@ -89,7 +89,7 @@ class StripeService {
     }
 
     const pricing = await pricingService.getPricing();
-    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing);
+    const quote = pricingService.quoteForBooking(booking, pricing);
     const firstWeekRate = quote.firstWeekRate;
     const weeklyRate = quote.weeklyRate;
     const deposit = quote.deposit;
@@ -100,9 +100,9 @@ class StripeService {
     const expiresAt = Math.floor((Date.now() + holdHours * 60 * 60 * 1000) / 1000);
 
     const desc = [
-      `${booking.scooter_type} Scooter - First Week $${firstWeekRate}`,
-      `Refundable Deposit $${deposit}`,
-      deliveryFee ? `Delivery $${deliveryFee}` : null,
+      `${booking.scooter_type} Scooter - First Week AUD ${firstWeekRate}`,
+      `Refundable Deposit AUD ${deposit}`,
+      deliveryFee ? `Delivery AUD ${deliveryFee}` : null,
     ].filter(Boolean).join(' + ');
 
     try {
@@ -110,7 +110,7 @@ class StripeService {
         mode: 'payment',
         customer_creation: 'always',               // Creates Stripe customer (needed for subscription)
         'payment_intent_data[setup_future_usage]': 'off_session', // Saves card for weekly charges
-        'line_items[0][price_data][currency]': 'aud',
+        'line_items[0][price_data][currency]': pricingService.STRIPE_CURRENCY,
         'line_items[0][price_data][unit_amount]': amountCents,
         'line_items[0][price_data][product_data][name]': desc,
         'line_items[0][quantity]': 1,
@@ -191,7 +191,14 @@ class StripeService {
 
     try {
       const pricing = await pricingService.getPricing();
-      const weeklyRate = Number(booking.weekly_rate) || pricingService.quote(booking.scooter_type, booking.pickup_delivery, pricing).weeklyRate;
+      const quote = pricingService.quoteForBooking(booking, pricing);
+      if (quote.totalWeeks <= 1) {
+        console.log('ℹ️  Weekly subscription skipped for one-week booking:', booking.booking_id);
+        return null;
+      }
+      const weeklyRate =
+        Number(booking.weekly_rate) ||
+        quote.weeklyRate;
       const amountCents = Math.round(weeklyRate * 100);
 
       // Billing starts 1 week from hire start (or 7 days from now if no start date).
@@ -206,7 +213,7 @@ class StripeService {
       const params = {
         customer:                 stripeCustomerId,
         default_payment_method:   paymentMethodId,
-        'items[0][price_data][currency]':              'aud',
+        'items[0][price_data][currency]':              pricingService.STRIPE_CURRENCY,
         'items[0][price_data][unit_amount]':           amountCents,
         'items[0][price_data][recurring][interval]':   'week',
         'items[0][price_data][product_data][name]':    `${booking.scooter_type} Weekly Hire`,
@@ -243,7 +250,7 @@ class StripeService {
       const session = await this.stripeRequest('POST', '/v1/checkout/sessions', {
         mode: 'payment',
         customer: subscription.stripe_customer_id || undefined,
-        'line_items[0][price_data][currency]': 'aud',
+        'line_items[0][price_data][currency]': pricingService.STRIPE_CURRENCY,
         'line_items[0][price_data][unit_amount]': Math.round(payment.amount * 100),
         'line_items[0][price_data][product_data][name]': `${subscription.scooter_type} Weekly Hire - Week ${weekNumber}`,
         'line_items[0][quantity]': 1,

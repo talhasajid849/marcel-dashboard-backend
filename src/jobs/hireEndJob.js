@@ -116,7 +116,7 @@ class HireEndJob {
       await platformMessenger.sendMessage(
         'whatsapp',
         hire.hirer_whatsapp_id,
-        `Hey ${hire.hirer_name}, your hire period has ended today. Thanks so much for riding with us!\n\nJust a reminder - please return the scooter to the agreed location with a full tank of 91 unleaded.\n\nOnce we confirm the bike is back in good condition, your $${deposit} deposit will be refunded within 3-5 business days. Any questions give us a shout!`
+        `Hey ${hire.hirer_name}, your hire period has ended today. Thanks so much for riding with us!\n\nJust a reminder - please return the scooter to the agreed location with a full tank of 91 unleaded.\n\nOnce we confirm the bike is back in good condition, your AUD ${deposit} deposit will be refunded within 3-5 business days. Any questions give us a shout!`
       );
     }
 

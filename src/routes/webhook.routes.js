@@ -257,7 +257,20 @@ async function handleCheckoutCompleted(session) {
 
   // 6. Create Stripe Subscription (auto weekly charges)
   let subscriptionSetupFailure = "";
-  if (
+  const needsWeeklyBilling = Number(localSubscription?.total_weeks || 1) > 1;
+  if (!needsWeeklyBilling) {
+    await Subscription.findOneAndUpdate(
+      { booking_id: booking.booking_id },
+      {
+        $set: {
+          auto_charge: false,
+          billing_status: "NOT_REQUIRED",
+          billing_failure_reason: "",
+          updated_at: now,
+        },
+      },
+    );
+  } else if (
     stripeCustomerId &&
     paymentIntentId &&
     !localSubscription?.stripe_subscription_id
@@ -320,7 +333,7 @@ async function handleCheckoutCompleted(session) {
       "Missing Stripe customer or upfront payment intent for auto billing";
   }
 
-  if (subscriptionSetupFailure) {
+  if (needsWeeklyBilling && subscriptionSetupFailure) {
     await Subscription.findOneAndUpdate(
       { booking_id: booking.booking_id },
       {
@@ -338,7 +351,8 @@ async function handleCheckoutCompleted(session) {
 
   // 7. Send WhatsApp confirmation
   await sendConfirmationMessage(booking, {
-    autoBillingActive: !subscriptionSetupFailure,
+    autoBillingActive: needsWeeklyBilling && !subscriptionSetupFailure,
+    needsWeeklyBilling,
   });
 }
 
@@ -397,7 +411,7 @@ async function handleInvoicePaymentSucceeded(invoice) {
   const now = new Date().toISOString();
 
   console.log(
-    `✅ Weekly payment received: $${amountPaid} for subscription ${stripeSubId}`,
+    `✅ Weekly payment received: AUD ${amountPaid} for subscription ${stripeSubId}`,
   );
 
   // Find our subscription
@@ -436,7 +450,7 @@ async function handleInvoicePaymentSucceeded(invoice) {
   if (subscription.customer_whatsapp_id) {
     try {
       const platformMessenger = require("../services/platformMessenger");
-      const msg = `Weekly payment of $${amountPaid} received — you're all sorted for this week. Cheers!`;
+      const msg = `Weekly payment of AUD ${amountPaid} received — you're all sorted for this week. Cheers!`;
       await platformMessenger.sendMessage(
         "whatsapp",
         subscription.customer_whatsapp_id,
@@ -486,7 +500,7 @@ async function handleInvoicePaymentFailed(invoice) {
     await platformMessenger.sendMessage(
       "whatsapp",
       colePhone,
-      `⚠️ PAYMENT FAILED\nCustomer: ${subscription.customer_name}\nPhone: ${subscription.customer_phone}\nScooter: ${subscription.scooter_plate}\nAmount: $${invoice.amount_due / 100}\n\nCard was declined. Please contact customer.`,
+      `⚠️ PAYMENT FAILED\nCustomer: ${subscription.customer_name}\nPhone: ${subscription.customer_phone}\nScooter: ${subscription.scooter_plate}\nAmount: AUD ${invoice.amount_due / 100}\n\nCard was declined. Please contact customer.`,
     );
 
     // Also message the customer
@@ -494,7 +508,7 @@ async function handleInvoicePaymentFailed(invoice) {
       await platformMessenger.sendMessage(
         "whatsapp",
         subscription.customer_whatsapp_id,
-        `Hey ${subscription.customer_name}, your weekly payment of $${invoice.amount_due / 100} couldn't go through. Please update your card details or give Cole a call on 0493 654 132.`,
+        `Hey ${subscription.customer_name}, your weekly payment of AUD ${invoice.amount_due / 100} couldn't go through. Please update your card details or give Cole a call on 0493 654 132.`,
       );
     }
   } catch (e) {
@@ -572,7 +586,7 @@ async function sendConfirmationMessage(booking, options = {}) {
 
   try {
     const platformMessenger = require("../services/platformMessenger");
-    const quote = pricingService.quote(booking.scooter_type, booking.pickup_delivery);
+    const quote = pricingService.quoteForBooking(booking);
     const firstWeekRate = booking.first_week_rate || quote.firstWeekRate;
     const weeklyRate = booking.weekly_rate || quote.weeklyRate;
     const deposit = booking.deposit || quote.deposit;
@@ -580,16 +594,18 @@ async function sendConfirmationMessage(booking, options = {}) {
     const upfront =
       booking.amount_upfront || firstWeekRate + deposit + deliveryFee;
 
-    const autoBillingLine = options.autoBillingActive
-      ? `From week 2 onwards your card will be charged $${weeklyRate} automatically each week - nothing to do on your end.`
+    const autoBillingLine = !options.needsWeeklyBilling
+      ? `This is a one-week hire, so the rental charge is AUD ${firstWeekRate} and there is no weekly renewal after this booking.`
+      : options.autoBillingActive
+      ? `From week 2 onwards your card will be charged AUD ${weeklyRate} automatically each week - nothing to do on your end.`
       : `We received your upfront payment. Weekly auto-billing needs a quick check on our side, so Cole will contact you if the card setup needs updating.`;
 
     const msg = [
       `Payment received — you're confirmed! 🎉`,
       `${booking.scooter_type} scooter from ${booking.start_date} to ${booking.end_date}.`,
-      `Upfront paid: $${upfront} (first week $${firstWeekRate} + deposit $${deposit}${deliveryFee ? ` + delivery $${deliveryFee}` : ""}).`,
+      `Upfront paid: AUD ${upfront} (first week AUD ${firstWeekRate} + deposit AUD ${deposit}${deliveryFee ? ` + delivery AUD ${deliveryFee}` : ""}).`,
       autoBillingLine,
-      `The $${deposit} deposit comes back when you return the bike undamaged with a full tank.`,
+      `The AUD ${deposit} deposit comes back when you return the bike undamaged with a full tank.`,
       `Any questions just message here. Enjoy the ride! 🛵`,
     ].join("\n\n");
 
