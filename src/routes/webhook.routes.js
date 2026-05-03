@@ -603,9 +603,9 @@ async function sendConfirmationMessage(booking, options = {}) {
     const msg = [
       `Payment received — you're confirmed! 🎉`,
       `${booking.scooter_type} scooter from ${booking.start_date} to ${booking.end_date}.`,
-      `Upfront paid: AUD ${upfront} (first week AUD ${firstWeekRate} + deposit AUD ${deposit}${deliveryFee ? ` + delivery AUD ${deliveryFee}` : ""}).`,
+      `Upfront paid: AUD ${upfront} (rental payment AUD ${firstWeekRate} + refundable bond AUD ${deposit}${deliveryFee ? ` + delivery AUD ${deliveryFee}` : ""}).`,
       autoBillingLine,
-      `The AUD ${deposit} deposit comes back when you return the bike undamaged with a full tank.`,
+      `The AUD ${deposit} bond comes back when you return the bike undamaged with a full tank.`,
       `Any questions just message here. Enjoy the ride! 🛵`,
     ].join("\n\n");
 

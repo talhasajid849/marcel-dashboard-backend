@@ -34,6 +34,25 @@ const DAVE_WHATSAPP = process.env.DAVE_WHATSAPP || "+61431398443";
 const COLE_WHATSAPP = process.env.COLE_WHATSAPP || "+61493654132";
 const DAVE_CHAT_ID = DAVE_WHATSAPP.replace(/^\+/, "") + "@c.us";
 
+const CUSTOMER_OPENING_MESSAGE = `Hey! 👋 Thanks for reaching out to Honk Hire Co, I’m Marcel.
+Here’s everything you need to know:
+
+🛵 50cc Scooter — $150/week
+Car licence only — any country. Single rider. Automatic, easy to ride. 1 helmet included.
+
+🏍️ 125cc Scooter — $160/week
+Minimum learner motorcycle licence required. 1 passenger permitted. Automatic. 1 helmet included. Second helmet extra $5 pw subject to availability.
+
+Less than 2 weeks is $200pw either scooter.
+
+🔒 Bike lock add-on — $5/week
+
+📍 Pick up or Delivery
+Free pick up from Tewantin, or delivery anywhere Noosa to Caloundra for $40.
+
+💰 How it works
+Minimum 2 weeks. $30 deposit secures your dates and comes off your total. $300 bond refunded on return.`;
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function isFromDave(platformId) {
@@ -81,6 +100,21 @@ function isDaveJobDone(text) {
   return /\b(done|complete|completed|finished|all done|job done|service done|sorted)\b/.test(
     lower,
   );
+}
+
+function isSimpleOpening(text) {
+  return /^(hi|hey|hello|hiya|yo|good morning|good afternoon|good evening|start)$/i.test(
+    String(text || "").trim(),
+  );
+}
+
+async function isFirstCustomerMessage(platform, platformId) {
+  const incomingCount = await Message.countDocuments({
+    platform,
+    platform_id: platformId,
+    direction: "INCOMING",
+  });
+  return incomingCount <= 1;
 }
 
 async function findDaveServiceForReply(text) {
@@ -327,7 +361,7 @@ async function bookingProgressReply(platform, platformId) {
 
     return [
       `Thanks, we have everything now. Your upfront payment is AUD ${amountUpfront}.`,
-      `That includes AUD ${firstWeekRate} for the first week, AUD ${deposit} refundable deposit${deliveryFee ? `, and AUD ${deliveryFee} delivery` : ""}.`,
+      `That includes AUD ${firstWeekRate} rental payment, AUD ${deposit} refundable bond${deliveryFee ? `, and AUD ${deliveryFee} delivery` : ""}.`,
       renewalLine,
       `Payment link: ${finalization.paymentLink}`,
     ].join("\n\n");
@@ -486,6 +520,11 @@ async function handleOdometerResponse(hire, reading, message) {
     console.log(
       `Rejected odometer reading ${reading}km because current is ${hire.current_odometer}km`,
     );
+    return;
+  }
+
+  if (isSimpleOpening(text) && (await isFirstCustomerMessage(platform, platform_id))) {
+    await sendMessage(platform, platform_id, CUSTOMER_OPENING_MESSAGE);
     return;
   }
 

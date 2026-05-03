@@ -83,7 +83,7 @@ function validateBookingDates(data) {
   if (end < start) return 'End date cannot be before start date';
 
   const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) return 'Bookings must be at least 1 week';
+  if (diffDays < 7) return 'Bookings must be at least 1 week. Less than 2 weeks is charged at the short-hire rate.';
 
   return null;
 }

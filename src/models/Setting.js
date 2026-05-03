@@ -7,6 +7,8 @@ const pricingSchema = new mongoose.Schema(
     weekly_rate_125cc: { type: Number, default: 160 },
     deposit: { type: Number, default: 300 },
     delivery_fee: { type: Number, default: 40 },
+    booking_deposit: { type: Number, default: 30 },
+    bike_lock_rate: { type: Number, default: 5 },
   },
   { _id: false },
 );

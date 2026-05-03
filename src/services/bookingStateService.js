@@ -191,13 +191,18 @@ function buildBookingContext(state, customer = null) {
     `Scooter type: ${state.scooterType || "NOT SET"}`,
     "",
     "# CORRECT PRICING (use these exact numbers, do not guess)",
-    `First week payment: AUD ${pricing.firstWeekRate}`,
+    `50cc scooter: AUD ${pricingService.getCachedPricing().weekly_rate_50cc}/week for 2+ week hires`,
+    `125cc scooter: AUD ${pricingService.getCachedPricing().weekly_rate_125cc}/week for 2+ week hires`,
+    `Less than 2 weeks: AUD ${pricingService.getCachedPricing().first_week_rate}/week either scooter`,
+    `Bike lock add-on: AUD ${pricing.bikeLockRate}/week`,
+    `First rental payment: AUD ${pricing.firstWeekRate}`,
     pricing.hasBookingDates && pricing.totalWeeks === 1
       ? `One-week rental total: AUD ${pricing.rentalTotal} (no weekly renewal after this booking)`
       : `Weekly renewal after week 1: AUD ${pricing.weeklyRate}/week`,
-    `Deposit: AUD ${pricing.deposit} refundable`,
+    `Booking deposit: AUD ${pricing.bookingDeposit} secures dates and comes off the total`,
+    `Bond: AUD ${pricing.bond} refundable on return`,
     `Delivery fee: AUD ${pricing.deliveryFee}`,
-    `Upfront total: AUD ${pricing.amountUpfront} (first week payment + deposit${pricing.deliveryFee ? " + delivery" : ""})`,
+    `Upfront checkout total: AUD ${pricing.amountUpfront} (rental payment + refundable bond${pricing.deliveryFee ? " + delivery" : ""})`,
     "",
     ...customerLines,
     `Licence type: ${state.licenceType || "NOT SET"}`,
@@ -224,8 +229,8 @@ function buildBookingContext(state, customer = null) {
     scooterType:
       "Understand the customer need, recommend 50cc or 125cc if clear, then ask/confirm the scooter type.",
     licenceType:
-      "Ask for the licence type needed for the scooter. 50cc needs a car licence. 125cc needs a full motorcycle licence.",
-    dates: "Ask for both start date and end date. Minimum 1 week.",
+      "Ask for the licence type needed for the scooter. 50cc needs a car licence from any country. 125cc needs at least a learner motorcycle licence.",
+    dates: "Ask for both start date and end date. Minimum standard hire is 2 weeks; if less than 2 weeks, short-hire rate is AUD 200/week either scooter.",
     pickupOrDelivery: "Ask if they want pickup or delivery.",
     countryOfOrigin: "Ask what country they are from for insurance.",
     address:
@@ -271,11 +276,11 @@ function buildNextQuestion(state) {
     scooterType: "What are you planning to use it for?",
     licenceType:
       state.scooterType === "125cc"
-        ? "For the 125cc you need a full motorcycle licence. Do you have one?"
-        : "For the 50cc you just need a regular car licence. Do you have one?",
+        ? "For the 125cc you need at least a learner motorcycle licence. Do you have one?"
+        : "For the 50cc you just need a car licence from any country. Do you have one?",
     dates: "What dates do you need it for?",
     pickupOrDelivery:
-      "Pickup from Tewantin or Maroochydore, or delivery for $40?",
+      "Free pickup from Tewantin, or delivery anywhere Noosa to Caloundra for AUD 40?",
     countryOfOrigin: "What country are you from for insurance?",
     address:
       "What is your full Sunshine Coast address, including house or unit number?",
@@ -865,7 +870,7 @@ async function finalizeBookingIfReady(platform, platformId) {
   const now = new Date().toISOString();
   const holdExpiresAt = addHours(new Date(), HOLD_DURATION_HOURS).toISOString();
 
-  // Enforce minimum 1 week hire
+  // Enforce minimum 1 week hire. Hires under 2 weeks use the short-hire rate.
   if (state.startDate && state.endDate) {
     const start = new Date(state.startDate);
     const end = new Date(state.endDate);
@@ -885,7 +890,7 @@ async function finalizeBookingIfReady(platform, platformId) {
         },
       );
       console.log(
-        `⚠️ Hire less than 1 week — extended to ${state.endDate} (minimum charge applies)`,
+        `⚠️ Hire less than 1 week — extended to ${state.endDate} (short-hire minimum applies)`,
       );
     }
   }

@@ -5,7 +5,7 @@
  *
  * Flow:
  * 1. Customer gets ONE checkout link
- * 2. First charge = deposit + first week + delivery (saves card)
+ * 2. First charge = refundable bond + rental payment + delivery (saves card)
  * 3. After payment → Stripe Subscription created automatically
  * 4. Stripe charges weekly rate every week — no manual links needed
  */
@@ -79,7 +79,7 @@ class StripeService {
   }
 
   // ── Step 1: Create upfront checkout link ─────────────────────────────────
-  // Charges: deposit + first week + delivery
+  // Charges: refundable bond + rental payment + delivery
   // Saves card for future auto-charges
 
   async createUpfrontPaymentLink(booking) {
@@ -100,8 +100,8 @@ class StripeService {
     const expiresAt = Math.floor((Date.now() + holdHours * 60 * 60 * 1000) / 1000);
 
     const desc = [
-      `${booking.scooter_type} Scooter - First Week AUD ${firstWeekRate}`,
-      `Refundable Deposit AUD ${deposit}`,
+      `${booking.scooter_type} Scooter - Rental Payment AUD ${firstWeekRate}`,
+      `Refundable Bond AUD ${deposit}`,
       deliveryFee ? `Delivery AUD ${deliveryFee}` : null,
     ].filter(Boolean).join(' + ');
 

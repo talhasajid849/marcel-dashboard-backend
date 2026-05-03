@@ -81,7 +81,7 @@ class PaymentReminderJob {
 
     return [
       `Payment reminder ${reminder.number}/3 for booking ${booking.booking_id}.`,
-      `Your upfront payment is AUD ${upfrontAmount}: AUD ${firstWeekRate} first week + AUD ${deposit} refundable deposit${deliveryFee ? ` + AUD ${deliveryFee} delivery` : ''}.`,
+      `Your upfront payment is AUD ${upfrontAmount}: AUD ${firstWeekRate} rental payment + AUD ${deposit} refundable bond${deliveryFee ? ` + AUD ${deliveryFee} delivery` : ''}.`,
       renewalLine,
       `Time left before this hold expires: about ${remainingMinutes} minutes.`,
       `Payment link: ${booking.stripe_link}`,

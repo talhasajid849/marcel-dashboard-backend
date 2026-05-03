@@ -6,6 +6,8 @@ const DEFAULT_PRICING = {
   weekly_rate_125cc: 160,
   deposit: 300,
   delivery_fee: 40,
+  booking_deposit: 30,
+  bike_lock_rate: 5,
 };
 
 const PAYMENT_CURRENCY = 'AUD';
@@ -20,6 +22,8 @@ function normalizePricing(pricing = {}) {
     weekly_rate_125cc: Number(pricing.weekly_rate_125cc) || DEFAULT_PRICING.weekly_rate_125cc,
     deposit: Number(pricing.deposit) || DEFAULT_PRICING.deposit,
     delivery_fee: Number(pricing.delivery_fee) || DEFAULT_PRICING.delivery_fee,
+    booking_deposit: Number(pricing.booking_deposit) || DEFAULT_PRICING.booking_deposit,
+    bike_lock_rate: Number(pricing.bike_lock_rate) || DEFAULT_PRICING.bike_lock_rate,
   };
 }
 
@@ -79,6 +83,9 @@ function quote(scooterType, pickupOrDelivery, pricing = cachedPricing) {
     firstWeekRate,
     weeklyRate,
     deposit,
+    bond: deposit,
+    bookingDeposit: normalized.booking_deposit,
+    bikeLockRate: normalized.bike_lock_rate,
     deliveryFee,
     totalWeeks: 1,
     rentalTotal: firstWeekRate,
@@ -87,34 +94,43 @@ function quote(scooterType, pickupOrDelivery, pricing = cachedPricing) {
 }
 
 function calculateBillableWeeks(startDate, endDate) {
+  const diffDays = calculateBillableDays(startDate, endDate);
+  if (!diffDays) return 1;
+  return Math.max(1, Math.ceil(diffDays / 7));
+}
+
+function calculateBillableDays(startDate, endDate) {
   const start = new Date(startDate);
   const end = new Date(endDate);
 
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return 1;
+    return 0;
   }
 
-  const diffDays = Math.max(
+  return Math.max(
     1,
     Math.ceil((end - start) / (1000 * 60 * 60 * 24)),
   );
-
-  return Math.max(1, Math.ceil(diffDays / 7));
 }
 
 function quoteForBooking(booking = {}, pricing = cachedPricing) {
   const base = quote(booking.scooter_type, booking.pickup_delivery, pricing);
   const hasBookingDates = Boolean(booking.start_date && booking.end_date);
+  const billableDays = calculateBillableDays(booking.start_date, booking.end_date);
   const totalWeeks = calculateBillableWeeks(booking.start_date, booking.end_date);
-  const firstWeekRate =
-    hasBookingDates && totalWeeks > 1 ? base.weeklyRate : base.firstWeekRate;
+  const isShortHire = hasBookingDates && billableDays > 0 && billableDays < 14;
+  const weeklyRate = isShortHire ? base.firstWeekRate : base.weeklyRate;
+  const firstWeekRate = isShortHire ? base.firstWeekRate : base.weeklyRate;
   const rentalTotal =
-    firstWeekRate + base.weeklyRate * Math.max(0, totalWeeks - 1);
+    firstWeekRate + weeklyRate * Math.max(0, totalWeeks - 1);
 
   return {
     ...base,
     firstWeekRate,
+    weeklyRate,
     hasBookingDates,
+    billableDays,
+    isShortHire,
     totalWeeks,
     rentalTotal,
     amountUpfront: firstWeekRate + base.deposit + base.deliveryFee,
@@ -132,4 +148,5 @@ module.exports = {
   quote,
   quoteForBooking,
   calculateBillableWeeks,
+  calculateBillableDays,
 };
