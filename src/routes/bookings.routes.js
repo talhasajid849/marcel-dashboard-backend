@@ -685,7 +685,9 @@ router.patch('/:id/status', async (req, res) => {
     }
 
     await syncFleetForBooking(booking);
-    await cancelOperationalRecordsForBooking(booking, reason || 'Booking cancelled via dashboard');
+    if (status === 'CANCELLED') {
+      await cancelOperationalRecordsForBooking(booking, notes || 'Booking cancelled via dashboard');
+    }
 
     // 📧 Send appropriate email based on status
     if (booking.email) {

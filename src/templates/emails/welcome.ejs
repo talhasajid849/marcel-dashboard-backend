@@ -1,0 +1,27 @@
+<%
+const content = `
+    <h2 style="color: #28a745; margin-bottom: 20px;">Welcome to Honk Hire Co.</h2>
+
+    <p>Hi <strong>${customerName}</strong>,</p>
+
+    <p>Thanks for joining Honk Hire Co. We have created your customer profile and you are ready to book a scooter when you need one.</p>
+
+    <div class="info-box">
+        <h3 style="margin-bottom: 15px; color: #667eea;">Customer Details</h3>
+
+        <div class="info-row">
+            <span class="info-label">Customer ID:</span>
+            <span class="info-value"><strong>${customerId}</strong></span>
+        </div>
+    </div>
+
+    <p>If you have any questions, reply to this email or contact the team.</p>
+
+    <p style="margin-top: 30px;">
+        Best regards,<br>
+        <strong>The Honk Hire Team</strong>
+    </p>
+`;
+%>
+
+<%- include('layout', { content: content, subject: 'Welcome to Honk Hire Co.' }) %>

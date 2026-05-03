@@ -16,7 +16,7 @@ const content = `
         
         <div class="info-row">
             <span class="info-label">Amount Due:</span>
-            <span class="info-value"><strong style="color: #dc3545; font-size: 20px;">$${amount}</strong></span>
+            <span class="info-value"><strong style="color: #dc3545; font-size: 20px;">AUD ${amount}</strong></span>
         </div>
         
         ${expiresAt ? `
@@ -35,7 +35,7 @@ const content = `
     ${paymentLink ? `
     <div style="text-align: center; margin: 30px 0;">
         <a href="${paymentLink}" class="button" style="background-color: #28a745; font-size: 16px;">
-            💳 Pay Now - $${amount}
+            💳 Pay Now - AUD ${amount}
         </a>
     </div>
     ` : ''}

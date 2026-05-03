@@ -261,7 +261,23 @@ async function buildAIContext(platform, platformId, hire) {
 
 async function fallbackReply(platform, platformId) {
   const { state } = await bookingStateService.loadState(platform, platformId);
+  if (state.status === "CONFIRMED" || state.paymentStatus === "PAID") {
+    const details = [
+      state.bookingId ? `booking ${state.bookingId}` : "your booking",
+      state.scooterType ? `${state.scooterType} scooter` : "",
+      state.startDate && state.endDate
+        ? `from ${state.startDate} to ${state.endDate}`
+        : "",
+    ].filter(Boolean);
+
+    return `Your booking is confirmed. I can help with pickup, delivery, return details, payments, or anything else about ${details.join(" ")}.`;
+  }
   return bookingStateService.buildNextQuestion(state);
+}
+
+async function isConfirmedOrPaid(platform, platformId) {
+  const { state } = await bookingStateService.loadState(platform, platformId);
+  return state.status === "CONFIRMED" || state.paymentStatus === "PAID";
 }
 
 function isPaymentCheckMessage(text) {
@@ -622,6 +638,12 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
         const replyText = await bookingProgressReply(platform, platformId);
         if (replyText) {
           await sendMessage(platform, platformId, replyText);
+        } else {
+          await sendMessage(
+            platform,
+            platformId,
+            "Got it, thanks. Your booking is already confirmed, so just let me know what you need help with.",
+          );
         }
         console.log(
           `✅ Licence photo URL saved for ${platformId}: ${photoSave.field}`,
@@ -661,6 +683,9 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     }
 
     const progressReply = await bookingProgressReply(platform, platformId);
+    const bookingIsConfirmed = progressReply === null
+      ? true
+      : await isConfirmedOrPaid(platform, platformId);
 
     // null means booking is confirmed - skip payment logic, let AI handle naturally.
     if (
@@ -673,11 +698,13 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
       return;
     }
 
-    const fallbackSave = await bookingStateService.applyExpectedFieldFallback(
-      platform,
-      platformId,
-      text,
-    );
+    const fallbackSave = bookingIsConfirmed
+      ? null
+      : await bookingStateService.applyExpectedFieldFallback(
+          platform,
+          platformId,
+          text,
+        );
 
     if (fallbackSave?.ok) {
       message.ai_processed = true;
@@ -693,9 +720,9 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
       const replyText = await bookingProgressReply(platform, platformId);
       if (replyText) {
         await sendMessage(platform, platformId, replyText);
+        console.log(`✅ Deterministic booking reply sent to ${platformId}`);
+        return;
       }
-      console.log(`✅ Deterministic booking reply sent to ${platformId}`);
-      return;
     }
 
     if (fallbackSave && fallbackSave.ok === false && fallbackSave.reason) {
@@ -754,7 +781,12 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     );
 
     if (savedFields.length) {
-      result = { text: await bookingProgressReply(platform, platformId) };
+      const replyText = await bookingProgressReply(platform, platformId);
+      if (replyText) {
+        result = { text: replyText };
+      } else if (!result?.text) {
+        result = { text: await fallbackReply(platform, platformId) };
+      }
     } else if (result?.text) {
       await bookingStateService.inferFromAssistantReply(
         platform,
@@ -781,6 +813,11 @@ async function handleAIConversation(platform, platformId, text, message, hire) {
     console.log(`✅ AI reply sent to ${platformId}`);
   } catch (err) {
     console.error("❌ AI conversation error:", err.message);
+    try {
+      await sendMessage(platform, platformId, await fallbackReply(platform, platformId));
+    } catch (fallbackErr) {
+      console.error("❌ Fallback reply error:", fallbackErr.message);
+    }
   }
 }
 

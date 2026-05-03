@@ -22,10 +22,10 @@ class EmailService {
       const html = await ejs.renderFile(templatePath, {
         ...data,
         currentYear: new Date().getFullYear(),
-        companyName: 'Honk Hire Co.',
+        companyName: process.env.EMAIL_FROM_NAME || 'Honk Hire Co.',
         companyEmail: defaultSender.email,
-        companyPhone: '+61 XXX XXX XXX',
-        companyWebsite: 'https://honkhire.com',
+        companyPhone: process.env.COMPANY_PHONE || '+61 493 654 132',
+        companyWebsite: process.env.COMPANY_WEBSITE || process.env.FRONTEND_URL || 'https://honkhire.com.au',
       });
       return html;
     } catch (error) {
