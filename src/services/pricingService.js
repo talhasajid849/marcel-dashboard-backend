@@ -106,14 +106,18 @@ function quoteForBooking(booking = {}, pricing = cachedPricing) {
   const base = quote(booking.scooter_type, booking.pickup_delivery, pricing);
   const hasBookingDates = Boolean(booking.start_date && booking.end_date);
   const totalWeeks = calculateBillableWeeks(booking.start_date, booking.end_date);
+  const firstWeekRate =
+    hasBookingDates && totalWeeks > 1 ? base.weeklyRate : base.firstWeekRate;
   const rentalTotal =
-    base.firstWeekRate + base.weeklyRate * Math.max(0, totalWeeks - 1);
+    firstWeekRate + base.weeklyRate * Math.max(0, totalWeeks - 1);
 
   return {
     ...base,
+    firstWeekRate,
     hasBookingDates,
     totalWeeks,
     rentalTotal,
+    amountUpfront: firstWeekRate + base.deposit + base.deliveryFee,
   };
 }
 
